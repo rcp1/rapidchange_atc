@@ -76,7 +76,6 @@ typedef struct {
 static volatile bool execute_posted = false;
 static volatile uint32_t spin_lock = 0;
 static nvs_address_t nvs_address;
-static uint8_t port, n_ports;
 static char max_port[4];
 static atc_settings_t atc_settings;
 static tool_data_t current_tool, *next_tool = NULL;
