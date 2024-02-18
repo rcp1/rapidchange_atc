@@ -1,5 +1,5 @@
-#ifndef _rapidchange_atc_h_
-#define _rapidchange_atc_h_
+#ifndef _RAPIDCHANGE_ATC_H_
+#define _RAPIDCHANGE_ATC_H_
 
 // Used to disable some functionality while developing
 #define DEBUG 1
