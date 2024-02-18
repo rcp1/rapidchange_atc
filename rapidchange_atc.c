@@ -30,7 +30,7 @@
 #include "grbl/nvs_buffer.h"
 #include "grbl/nuts_bolts.h"
 
-#include "my_plugin.h"
+#include "rapidchange_atc.h"
 typedef enum {
     Motor_Off = 0,
     Motor_CW = 1,
@@ -73,14 +73,14 @@ typedef struct {
     uint8_t  dust_cover_closed_position;
     uint8_t  dust_cover_output;
     uint8_t  port;
-} plugin_settings_t;
+} atc_settings_t;
 
 static volatile bool execute_posted = false;
 static volatile uint32_t spin_lock = 0;
 static nvs_address_t nvs_address;
 static uint8_t port, n_ports;
 static char max_port[4];
-static plugin_settings_t my_settings;
+static atc_settings_t atc_settings;
 static tool_data_t current_tool, *next_tool = NULL;
 static driver_reset_ptr driver_reset = NULL;
 static on_report_options_ptr on_report_options;
@@ -91,40 +91,40 @@ static const setting_group_detail_t user_groups [] = {
 };
 
 static const setting_detail_t user_settings[] = {
-    { 900, Group_UserSettings, "Alignment", "Axis", Format_RadioButtons, "X,Y", NULL, NULL, Setting_IsExtended, &my_settings.alignment, NULL, NULL },
-    { 901, Group_UserSettings, "Direction", NULL, Format_RadioButtons, "Positive,Negative", NULL, NULL, Setting_IsExtended, &my_settings.direction, NULL, NULL },
-    { 902, Group_UserSettings, "Number of tool pockets", NULL, Format_Int8, "#00", "0", "120", Setting_IsExtended, &my_settings.number_of_pockets, NULL, NULL },
-    { 903, Group_UserSettings, "Pocket Offset", "mm", Format_Int16, "###0", "0", "3000", Setting_IsExtended, &my_settings.pocket_offset, NULL, NULL },
-    { 904, Group_UserSettings, "Pocket 1 X Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_IsExtended, &my_settings.pocket_1_x_pos, NULL, NULL },
-    { 905, Group_UserSettings, "Pocket 1 Y Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_IsExtended, &my_settings.pocket_1_y_pos, NULL, NULL },
-    { 906, Group_UserSettings, "Spindle Start Height", "mm", Format_Decimal, "-##0.000", "-999.999", "999.999", Setting_IsExtended, &my_settings.tool_start_height, NULL, NULL },
-    { 907, Group_UserSettings, "Z Retract", "mm", Format_Decimal, "-##0.000", "-127.000", "127.000", Setting_IsExtended, &my_settings.tool_z_retract, NULL, NULL },
-    { 908, Group_UserSettings, "Tool Engagement Feed Rate", "mm/min", Format_Int16, "###0", "0", "3000", Setting_IsExtended, &my_settings.tool_engagement_feed_rate, NULL, NULL },
-    { 909, Group_UserSettings, "Tool Pickup RPM", "rpm", Format_Int16, "###0", "0", "24000", Setting_IsExtended, &my_settings.tool_pickup_rpm, NULL, NULL },
-    { 910, Group_UserSettings, "Tool Dropoff RPM", "rpm", Format_Int16, "###0", "0", "24000", Setting_IsExtended, &my_settings.tool_dropoff_rpm, NULL, NULL },
-    { 911, Group_UserSettings, "Tool Z Engage", "mm", Format_Decimal, "-##0.000", "-120", "120", Setting_IsExtended, &my_settings.tool_z_engagement, NULL, NULL },
-    { 912, Group_UserSettings, "Tool Z Traverse", "mm", Format_Decimal, "-##0.000", "-120", "120", Setting_IsExtended, &my_settings.tool_z_traverse, NULL, NULL },
-    { 913, Group_UserSettings, "Tool Z Safe Clearance", "mm", Format_Decimal, "-##0.000", "-120", "120", Setting_IsExtended, &my_settings.tool_z_safe_clearance, NULL, NULL },
-    { 914, Group_UserSettings, "Tool Setter", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_IsExtended, &my_settings.tool_setter, NULL, NULL },
-    { 915, Group_UserSettings, "Tool Recognition", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_IsExtended, &my_settings.tool_recognition, NULL, NULL },
-    { 916, Group_UserSettings, "Dust Cover", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_IsExtended, &my_settings.dust_cover, NULL, NULL },
-    { 917, Group_UserSettings, "Setter Tool Offset", NULL, Format_Int8, "##0", "0", "255", Setting_IsExtended, &my_settings.toolsetter_offset, NULL, NULL },
-    { 918, Group_UserSettings, "Setter Seek Rate", NULL, Format_Int8, "###0", "0", "5000", Setting_IsExtended, &my_settings.toolsetter_seek_rate, NULL, NULL },
-    { 919, Group_UserSettings, "Setter Retreat", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &my_settings.toolsetter_retreat, NULL, NULL },
-    { 920, Group_UserSettings, "Setter Feed Rate", NULL, Format_Int16, "###0", "0", "5000", Setting_IsExtended, &my_settings.toolsetter_feed_rate, NULL, NULL },
-    { 921, Group_UserSettings, "Setter Max Travel", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &my_settings.toolsetter_max_travel, NULL, NULL },
-    { 922, Group_UserSettings, "Setter X Pos", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &my_settings.toolsetter_x_pos, NULL, NULL },
-    { 923, Group_UserSettings, "Setter Y Pos", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &my_settings.toolsetter_y_pos, NULL, NULL },
-    { 924, Group_UserSettings, "Setter Z Start Pos", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &my_settings.toolsetter_z_start_pos, NULL, NULL },
-    { 925, Group_UserSettings, "Setter Safe Z", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &my_settings.toolsetter_safe_z, NULL, NULL },
-    { 926, Group_UserSettings, "Tool Recognition Input", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &my_settings.toolrecognition_input, NULL, NULL },
-    { 927, Group_UserSettings, "Tool Recognition Detect Zone 1", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &my_settings.toolrecognition_detect_zone_1, NULL, NULL },
-    { 928, Group_UserSettings, "Tool Recognition Detect Zone 2", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &my_settings.toolrecognition_detect_zone_2, NULL, NULL },
-    { 929, Group_UserSettings, "Dust Cover Axis", NULL, Format_RadioButtons, "Use Output Pin,A-Axis,B-Axis,C-Axis", NULL, NULL, Setting_IsExtended, &my_settings.dust_cover_axis, NULL, NULL },
-    { 930, Group_UserSettings, "Dust Cover Open Position", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &my_settings.dust_cover_open_position, NULL, NULL },
-    { 931, Group_UserSettings, "Dust Cover Closed Position", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &my_settings.dust_cover_closed_position, NULL, NULL },
-    { 932, Group_UserSettings, "Dust Cover Output", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &my_settings.dust_cover_output, NULL, NULL },
-    { 933, Group_UserSettings, "Embroidery trigger port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCore, &my_settings.port, NULL, is_setting_available, { .reboot_required = On } },
+    { 900, Group_UserSettings, "Alignment", "Axis", Format_RadioButtons, "X,Y", NULL, NULL, Setting_IsExtended, &atc_settings.alignment, NULL, NULL },
+    { 901, Group_UserSettings, "Direction", NULL, Format_RadioButtons, "Positive,Negative", NULL, NULL, Setting_IsExtended, &atc_settings.direction, NULL, NULL },
+    { 902, Group_UserSettings, "Number of tool pockets", NULL, Format_Int8, "#00", "0", "120", Setting_IsExtended, &atc_settings.number_of_pockets, NULL, NULL },
+    { 903, Group_UserSettings, "Pocket Offset", "mm", Format_Int16, "###0", "0", "3000", Setting_IsExtended, &atc_settings.pocket_offset, NULL, NULL },
+    { 904, Group_UserSettings, "Pocket 1 X Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_IsExtended, &atc_settings.pocket_1_x_pos, NULL, NULL },
+    { 905, Group_UserSettings, "Pocket 1 Y Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_IsExtended, &atc_settings.pocket_1_y_pos, NULL, NULL },
+    { 906, Group_UserSettings, "Spindle Start Height", "mm", Format_Decimal, "-##0.000", "-999.999", "999.999", Setting_IsExtended, &atc_settings.tool_start_height, NULL, NULL },
+    { 907, Group_UserSettings, "Z Retract", "mm", Format_Decimal, "-##0.000", "-127.000", "127.000", Setting_IsExtended, &atc_settings.tool_z_retract, NULL, NULL },
+    { 908, Group_UserSettings, "Tool Engagement Feed Rate", "mm/min", Format_Int16, "###0", "0", "3000", Setting_IsExtended, &atc_settings.tool_engagement_feed_rate, NULL, NULL },
+    { 909, Group_UserSettings, "Tool Pickup RPM", "rpm", Format_Int16, "###0", "0", "24000", Setting_IsExtended, &atc_settings.tool_pickup_rpm, NULL, NULL },
+    { 910, Group_UserSettings, "Tool Dropoff RPM", "rpm", Format_Int16, "###0", "0", "24000", Setting_IsExtended, &atc_settings.tool_dropoff_rpm, NULL, NULL },
+    { 911, Group_UserSettings, "Tool Z Engage", "mm", Format_Decimal, "-##0.000", "-120", "120", Setting_IsExtended, &atc_settings.tool_z_engagement, NULL, NULL },
+    { 912, Group_UserSettings, "Tool Z Traverse", "mm", Format_Decimal, "-##0.000", "-120", "120", Setting_IsExtended, &atc_settings.tool_z_traverse, NULL, NULL },
+    { 913, Group_UserSettings, "Tool Z Safe Clearance", "mm", Format_Decimal, "-##0.000", "-120", "120", Setting_IsExtended, &atc_settings.tool_z_safe_clearance, NULL, NULL },
+    { 914, Group_UserSettings, "Tool Setter", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_IsExtended, &atc_settings.tool_setter, NULL, NULL },
+    { 915, Group_UserSettings, "Tool Recognition", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_IsExtended, &atc_settings.tool_recognition, NULL, NULL },
+    { 916, Group_UserSettings, "Dust Cover", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_IsExtended, &atc_settings.dust_cover, NULL, NULL },
+    { 917, Group_UserSettings, "Setter Tool Offset", NULL, Format_Int8, "##0", "0", "255", Setting_IsExtended, &atc_settings.toolsetter_offset, NULL, NULL },
+    { 918, Group_UserSettings, "Setter Seek Rate", NULL, Format_Int8, "###0", "0", "5000", Setting_IsExtended, &atc_settings.toolsetter_seek_rate, NULL, NULL },
+    { 919, Group_UserSettings, "Setter Retreat", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &atc_settings.toolsetter_retreat, NULL, NULL },
+    { 920, Group_UserSettings, "Setter Feed Rate", NULL, Format_Int16, "###0", "0", "5000", Setting_IsExtended, &atc_settings.toolsetter_feed_rate, NULL, NULL },
+    { 921, Group_UserSettings, "Setter Max Travel", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &atc_settings.toolsetter_max_travel, NULL, NULL },
+    { 922, Group_UserSettings, "Setter X Pos", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &atc_settings.toolsetter_x_pos, NULL, NULL },
+    { 923, Group_UserSettings, "Setter Y Pos", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &atc_settings.toolsetter_y_pos, NULL, NULL },
+    { 924, Group_UserSettings, "Setter Z Start Pos", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &atc_settings.toolsetter_z_start_pos, NULL, NULL },
+    { 925, Group_UserSettings, "Setter Safe Z", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &atc_settings.toolsetter_safe_z, NULL, NULL },
+    { 926, Group_UserSettings, "Tool Recognition Input", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &atc_settings.toolrecognition_input, NULL, NULL },
+    { 927, Group_UserSettings, "Tool Recognition Detect Zone 1", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &atc_settings.toolrecognition_detect_zone_1, NULL, NULL },
+    { 928, Group_UserSettings, "Tool Recognition Detect Zone 2", NULL, Format_Decimal, "####0.000", NULL, NULL, Setting_IsExtended, &atc_settings.toolrecognition_detect_zone_2, NULL, NULL },
+    { 929, Group_UserSettings, "Dust Cover Axis", NULL, Format_RadioButtons, "Use Output Pin,A-Axis,B-Axis,C-Axis", NULL, NULL, Setting_IsExtended, &atc_settings.dust_cover_axis, NULL, NULL },
+    { 930, Group_UserSettings, "Dust Cover Open Position", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &atc_settings.dust_cover_open_position, NULL, NULL },
+    { 931, Group_UserSettings, "Dust Cover Closed Position", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &atc_settings.dust_cover_closed_position, NULL, NULL },
+    { 932, Group_UserSettings, "Dust Cover Output", NULL, Format_Int8, "##0", "0", "250", Setting_IsExtended, &atc_settings.dust_cover_output, NULL, NULL },
+    { 933, Group_UserSettings, "Embroidery trigger port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCore, &atc_settings.port, NULL, is_setting_available, { .reboot_required = On } },
 
 };
 
@@ -135,8 +135,6 @@ static const setting_descr_t user_descriptions[] = {
     { 903, "Value: Distance (mm)\\n\\nThe distance from one pocket to the next when measuring from center to center." },
     { 904, "Value: X Machine Coordinate (mm)\\n\\nThe x axis position referencing the center of the first tool pocket." },
     { 905, "Value: Y Machine Coordinate (mm)\\n\\nThe y axis position referencing the center of the first tool pocket." },
-
-
     { 908, "Value: Feed Rate (mm/min)\\n\\nThe feed rate at which the spindle plunges when engaging the clamping nut." },
     { 909, "Value: Spindle Speed (rpm)\\n\\nThe rpm at which to operate the spindle clockwise when engaging the clamping nut while picking up a tool." },
     { 910, "Value: Spindle Speed (rpm)\\n\\nThe rpm at which to operate the spindle counter-clockwise when engaging the clamping nut while dropping a tool." },
@@ -180,7 +178,7 @@ static setting_details_t setting_details = {
 // Write settings to non volatile storage (NVS).
 static void plugin_settings_save (void)
 {
-    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&my_settings, sizeof(plugin_settings_t), true);
+    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&atc_settings, sizeof(atc_settings_t), true);
 }
 
 static bool is_setting_available (const setting_detail_t *setting)
@@ -202,48 +200,48 @@ static bool is_setting_available (const setting_detail_t *setting)
 // Restore default settings and write to non volatile storage (NVS).
 static void plugin_settings_restore (void)
 {
-    my_settings.alignment = 0;  // 0 = X, 1 = Y
-    my_settings.direction = 0;  // 0 = +, 1 = -
-    my_settings.number_of_pockets = 0;
-    my_settings.pocket_offset = 0;
-    my_settings.pocket_1_x_pos = 0.00f;
-    my_settings.pocket_1_y_pos = 0.00f;
-    my_settings.tool_engagement_feed_rate = 0;
-    my_settings.tool_pickup_rpm = 0;
-    my_settings.tool_dropoff_rpm = 0;
-    my_settings.tool_z_retract = 0;
-    my_settings.tool_start_height = 0;
-    my_settings.tool_z_engagement = 0;
-    my_settings.tool_z_traverse = 0;
-    my_settings.tool_z_safe_clearance = 0;
-    my_settings.tool_setter = false;
-    my_settings.tool_recognition = false;
-    my_settings.dust_cover = false;
-    my_settings.toolsetter_offset = 0;
-    my_settings.toolsetter_seek_rate = 0;
-    my_settings.toolsetter_retreat = 0;
-    my_settings.toolsetter_feed_rate = 0;
-    my_settings.toolsetter_max_travel = 0;
-    my_settings.toolsetter_x_pos = 0;
-    my_settings.toolsetter_y_pos = 0;
-    my_settings.toolsetter_z_start_pos = 0;
-    my_settings.toolsetter_safe_z = 0;
-    my_settings.toolrecognition_input = 0;
-    my_settings.toolrecognition_detect_zone_1 = 0;
-    my_settings.toolrecognition_detect_zone_2 = 0;
-    my_settings.dust_cover_axis = 0;
-    my_settings.dust_cover_open_position = 0;
-    my_settings.dust_cover_closed_position = 0;
-    my_settings.dust_cover_output = 0;
-    my_settings.port = 0;
+    atc_settings.alignment = 0;  // 0 = X, 1 = Y
+    atc_settings.direction = 0;  // 0 = +, 1 = -
+    atc_settings.number_of_pockets = 0;
+    atc_settings.pocket_offset = 0;
+    atc_settings.pocket_1_x_pos = 0.00f;
+    atc_settings.pocket_1_y_pos = 0.00f;
+    atc_settings.tool_engagement_feed_rate = 0;
+    atc_settings.tool_pickup_rpm = 0;
+    atc_settings.tool_dropoff_rpm = 0;
+    atc_settings.tool_z_retract = 0;
+    atc_settings.tool_start_height = 0;
+    atc_settings.tool_z_engagement = 0;
+    atc_settings.tool_z_traverse = 0;
+    atc_settings.tool_z_safe_clearance = 0;
+    atc_settings.tool_setter = false;
+    atc_settings.tool_recognition = false;
+    atc_settings.dust_cover = false;
+    atc_settings.toolsetter_offset = 0;
+    atc_settings.toolsetter_seek_rate = 0;
+    atc_settings.toolsetter_retreat = 0;
+    atc_settings.toolsetter_feed_rate = 0;
+    atc_settings.toolsetter_max_travel = 0;
+    atc_settings.toolsetter_x_pos = 0;
+    atc_settings.toolsetter_y_pos = 0;
+    atc_settings.toolsetter_z_start_pos = 0;
+    atc_settings.toolsetter_safe_z = 0;
+    atc_settings.toolrecognition_input = 0;
+    atc_settings.toolrecognition_detect_zone_1 = 0;
+    atc_settings.toolrecognition_detect_zone_2 = 0;
+    atc_settings.dust_cover_axis = 0;
+    atc_settings.dust_cover_open_position = 0;
+    atc_settings.dust_cover_closed_position = 0;
+    atc_settings.dust_cover_output = 0;
+    atc_settings.port = 0;
 
-    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&my_settings, sizeof(plugin_settings_t), true);
+    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&atc_settings, sizeof(atc_settings_t), true);
 }
 
 // Load settings from volatile storage (NVS)
 static void plugin_settings_load (void)
 {
-    if(hal.nvs.memcpy_from_nvs((uint8_t *)&my_settings, nvs_address, sizeof(plugin_settings_t), true) != NVS_TransferResult_OK)
+    if(hal.nvs.memcpy_from_nvs((uint8_t *)&atc_settings, nvs_address, sizeof(atc_settings_t), true) != NVS_TransferResult_OK)
         plugin_settings_restore();
 }
 
@@ -253,20 +251,20 @@ static coord_data_t get_tool_location(tool_data_t tool) {
 
     memset(&target, 0, sizeof(coord_data_t)); // Zero plan_data struct
 
-    if(my_settings.alignment == 0) { // X Axis
-        if(my_settings.direction == 0) { // Positive
-            target.x = my_settings.pocket_1_x_pos + (float) ((tool.tool_id - 1) * my_settings.pocket_offset );
+    if(atc_settings.alignment == 0) { // X Axis
+        if(atc_settings.direction == 0) { // Positive
+            target.x = atc_settings.pocket_1_x_pos + (float) ((tool.tool_id - 1) * atc_settings.pocket_offset );
         } else {
-            target.x = my_settings.pocket_1_x_pos - (float) ((tool.tool_id - 1) * my_settings.pocket_offset );
+            target.x = atc_settings.pocket_1_x_pos - (float) ((tool.tool_id - 1) * atc_settings.pocket_offset );
         }
-        target.y = my_settings.pocket_1_y_pos;
+        target.y = atc_settings.pocket_1_y_pos;
     } else {
-        if(my_settings.direction == 0) { // Positive
-            target.y = my_settings.pocket_1_y_pos + (float) ((tool.tool_id - 1) * my_settings.pocket_offset );
+        if(atc_settings.direction == 0) { // Positive
+            target.y = atc_settings.pocket_1_y_pos + (float) ((tool.tool_id - 1) * atc_settings.pocket_offset );
         } else {
-            target.y = my_settings.pocket_1_y_pos - (float) ((tool.tool_id - 1) * my_settings.pocket_offset );
+            target.y = atc_settings.pocket_1_y_pos - (float) ((tool.tool_id - 1) * atc_settings.pocket_offset );
         }
-        target.x = my_settings.pocket_1_x_pos;
+        target.x = atc_settings.pocket_1_x_pos;
     }
 
     return target;
@@ -313,7 +311,7 @@ static status_code_t spindle(bool load) {
         return Status_OK;
     }
 
-    if(next_tool->tool_id > my_settings.number_of_pockets) {
+    if(next_tool->tool_id > atc_settings.number_of_pockets) {
         debug_output("Tool number is larger than pocket. Manual Tool Change", NULL, NULL);
         if(load) {
             manualToolLoad();
@@ -328,7 +326,7 @@ static status_code_t spindle(bool load) {
 
     // Lets stop the spindle and set the feed rate for all moves.
     plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){0}, 0.0f);
-    plan_data.feed_rate = my_settings.tool_engagement_feed_rate;
+    plan_data.feed_rate = atc_settings.tool_engagement_feed_rate;
     plan_data.condition.rapid_motion = Off;
 
 
@@ -337,48 +335,48 @@ static status_code_t spindle(bool load) {
 
     // Raise Z to safe clearance 
     target = current_pos;
-    target.z = my_settings.tool_z_safe_clearance;
+    target.z = atc_settings.tool_z_safe_clearance;
     debug_output("Raising Z to Clearance Height", NULL, &plan_data);
     mc_line(target.values, &plan_data);
 
     // Get X,Y for current tool and move to that position
     target = get_tool_location((load?*next_tool:current_tool));
-    target.z = my_settings.tool_z_safe_clearance;
+    target.z = atc_settings.tool_z_safe_clearance;
     debug_output("Determine tool position and go there", &target, &plan_data);
     mc_line(target.values, &plan_data);
 
-    target.z = my_settings.tool_start_height;
+    target.z = atc_settings.tool_start_height;
     debug_output("Going to Spindle Start Height", &target, &plan_data);
     mc_line(target.values, &plan_data);
 
     // Turn on the spindle CCW
     if(load) {
-        plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On }, my_settings.tool_pickup_rpm);
+        plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On }, atc_settings.tool_pickup_rpm);
     } else {
-        plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On, .ccw = On }, my_settings.tool_dropoff_rpm);
+        plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On, .ccw = On }, atc_settings.tool_dropoff_rpm);
     }
 
     // move to engagement height
-    target.z = my_settings.tool_z_engagement;
+    target.z = atc_settings.tool_z_engagement;
     debug_output("Turning on spindle and moving to engagement height", &target, &plan_data);
     mc_line(target.values, &plan_data);
 
     // Are we doing tool recognition
-    if(my_settings.tool_recognition) {
+    if(atc_settings.tool_recognition) {
         debug_output("Tool Recognition Enabled", NULL, NULL);
         // Move spindle to zone 2
-        target.z = my_settings.toolrecognition_detect_zone_2;
+        target.z = atc_settings.toolrecognition_detect_zone_2;
         debug_output("Moving to zone 2", &target, &plan_data);
         mc_line(target.values, &plan_data);
         // Wait for spindle to be in the correct location
         protocol_buffer_synchronize();
         // IF the nut isn't all the way on lets try again
         if(laserBlocked()) {
-            target.z = my_settings.tool_z_engagement;
+            target.z = atc_settings.tool_z_engagement;
             debug_output("Detection Failed Trying again", NULL, NULL);
 
             mc_line(target.values, &plan_data);
-            target.z = my_settings.toolrecognition_detect_zone_1;
+            target.z = atc_settings.toolrecognition_detect_zone_1;
             mc_line(target.values, &plan_data);
             protocol_buffer_synchronize();
         }
@@ -390,7 +388,7 @@ static status_code_t spindle(bool load) {
 
         // Bring Spindle up and Turn off spindle
         
-        target.z = my_settings.tool_z_safe_clearance;
+        target.z = atc_settings.tool_z_safe_clearance;
         plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t)(spindle_state_t){ .on = Off }, 0.0f);
         debug_output("Stopping spindle and raising to clearance height", &target, &plan_data);
         mc_line(target.values, &plan_data); 
@@ -499,7 +497,7 @@ void my_plugin_init (void)
     hal.tool.select = tool_select;
     hal.tool.change = tool_change;
 
-    if((nvs_address = nvs_alloc(sizeof(plugin_settings_t)))) {
+    if((nvs_address = nvs_alloc(sizeof(atc_settings_t)))) {
          settings_register(&setting_details);
     } else {
         protocol_enqueue_rt_command(warning_mem);

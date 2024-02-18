@@ -1,5 +1,5 @@
-#ifndef _my_plugin_h_
-#define _my_plugin_h_
+#ifndef _rapidchange_atc_h_
+#define _rapidchange_atc_h_
 
 // Used to disable some functionality while developing
 #define DEBUG 1
