@@ -1,11 +1,9 @@
 /*
-  tool_change.c - An embedded CNC Controller with rs274/ngc (g-code) support
-
-  Manual tool change with option for automatic touch off
+  rapidchange_atc.c - Tool change routine to support Rapidchange magazine
 
   Part of grblHAL
 
-  Copyright (c) 2020-2023 Terje Io
+  Copyright (c) 2024 rvalotta
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -333,7 +331,7 @@ static status_code_t spindle(bool load) {
     system_convert_array_steps_to_mpos(current_pos.values, sys.position);
     debug_output("Getting Current POS", &current_pos, &plan_data);
 
-    // Raise Z to safe clearance 
+    // Raise Z to safe clearance
     target = current_pos;
     target.z = atc_settings.tool_z_safe_clearance;
     debug_output("Raising Z to Clearance Height", NULL, &plan_data);
@@ -380,22 +378,22 @@ static status_code_t spindle(bool load) {
             mc_line(target.values, &plan_data);
             protocol_buffer_synchronize();
         }
-        
+
         if(laserBlocked()) {
             // TODO: Need to error out.
             return Status_GcodeInvalidTarget;
         }
 
         // Bring Spindle up and Turn off spindle
-        
+
         target.z = atc_settings.tool_z_safe_clearance;
         plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t)(spindle_state_t){ .on = Off }, 0.0f);
         debug_output("Stopping spindle and raising to clearance height", &target, &plan_data);
-        mc_line(target.values, &plan_data); 
+        mc_line(target.values, &plan_data);
 
     }
     debug_output("Updating current tool", NULL, NULL);
-    
+
     if(load) {
         memset(&current_tool, 0, sizeof(tool_data_t));
     } else {
@@ -453,14 +451,14 @@ static status_code_t tool_change (parser_state_t *parser_state)
 
     // Stop spindle and coolant
     hal.coolant.set_state((coolant_state_t){0});
-    
+
     debug_output("Check if we need to unload tool", NULL, NULL);
     spindle(false);
     debug_output("Check if we need to load a tool", NULL, NULL);
     spindle(true);
     debug_output("Check if we need to measure a tool", NULL, NULL);
     measureTool();
-    
+
 
     return Status_OK;
 }
@@ -471,7 +469,7 @@ static void report_options (bool newopt)
 
     if(!newopt) {
         hal.stream.write("[PLUGIN: RapidChange ATC v0.01]" ASCII_EOL);
-    }        
+    }
 }
 
 static void warning_mem (uint_fast16_t state)
@@ -502,7 +500,7 @@ void my_plugin_init (void)
     } else {
         protocol_enqueue_rt_command(warning_mem);
     }
- 
+
     if(driver_reset == NULL) {
         driver_reset = hal.driver_reset;
         hal.driver_reset = reset;
@@ -537,11 +535,11 @@ void debug_output(char* message, coord_data_t *target, plan_line_data_t *pl_data
         hal.stream.write(ASCII_EOL);
         hal.stream.write("Spindle RPM:");
         hal.stream.write(ftoa(pl_data->spindle.rpm,3));
-        hal.stream.write(ASCII_EOL);    
+        hal.stream.write(ASCII_EOL);
         hal.stream.write("Spindle State:");
-        char buffer[8U] = ""; /*the output buffer*/ 
-        
-        sprintf (buffer, "%d", pl_data->spindle.state.value);    
+        char buffer[8U] = ""; /*the output buffer*/
+
+        sprintf (buffer, "%d", pl_data->spindle.state.value);
         hal.stream.write(buffer);
         hal.stream.write(ASCII_EOL);
 
