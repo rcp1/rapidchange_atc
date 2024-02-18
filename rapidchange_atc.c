@@ -24,9 +24,9 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "hal.h"
-#include "motion_control.h"
-#include "protocol.h"
+#include "grbl/hal.h"
+#include "grbl/motion_control.h"
+#include "grbl/protocol.h"
 #include "grbl/nvs_buffer.h"
 #include "grbl/nuts_bolts.h"
 
