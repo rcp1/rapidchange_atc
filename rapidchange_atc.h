@@ -35,6 +35,5 @@ static status_code_t tool_change (parser_state_t *parser_state);
 static void report_options (bool newopt);
 static void manualToolUnLoad ();
 static void manualToolLoad ();
-static bool laserBlocked();
 static void debug_output(char* message, coord_data_t *target, plan_line_data_t *pl_data);
 #endif
