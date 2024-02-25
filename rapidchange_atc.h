@@ -23,12 +23,12 @@
 #define _RAPIDCHANGE_ATC_H_
 
 // Used to disable some functionality while developing
-#define DEBUG 1
+#define DEBUG 0
 
-static void plugin_settings_save (void);
-static void plugin_settings_restore (void);
+static void atc_settings_save (void);
+static void atc_settings_restore (void);
 static coord_data_t get_tool_location(tool_data_t tool);
-static void plugin_settings_load (void);
+static void atc_settings_load (void);
 static void reset (void);
 static void tool_select (tool_data_t *tool, bool next);
 static status_code_t tool_change (parser_state_t *parser_state);

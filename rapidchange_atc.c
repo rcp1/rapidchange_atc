@@ -213,23 +213,18 @@ static setting_details_t setting_details = {
 // Return X,Y based on tool number
 static coord_data_t get_tool_location(tool_data_t tool) {
     coord_data_t target = {0};
-
     memset(&target, 0, sizeof(coord_data_t)); // Zero plan_data struct
+    target.x = atc.pocket_1_x_pos;
+    target.y = atc.pocket_1_y_pos;
 
-    if(atc_settings.alignment == 0) { // X Axis
-        if(atc_settings.direction == 0) { // Positive
-            target.x = atc_settings.pocket_1_x_pos + (float) ((tool.tool_id - 1) * atc_settings.pocket_offset );
-        } else {
-            target.x = atc_settings.pocket_1_x_pos - (float) ((tool.tool_id - 1) * atc_settings.pocket_offset );
-        }
-        target.y = atc_settings.pocket_1_y_pos;
+    float tool_offset = (tool.tool_id - 1) * atc.pocket_offset;
+    if(atc.direction != 0)
+        tool_offset *= -1.F;
+
+    if(atc.alignment == 0) { // X Axis
+        target.x = atc.pocket_1_x_pos + tool_offset;
     } else {
-        if(atc_settings.direction == 0) { // Positive
-            target.y = atc_settings.pocket_1_y_pos + (float) ((tool.tool_id - 1) * atc_settings.pocket_offset );
-        } else {
-            target.y = atc_settings.pocket_1_y_pos - (float) ((tool.tool_id - 1) * atc_settings.pocket_offset );
-        }
-        target.x = atc_settings.pocket_1_x_pos;
+        target.y = atc.pocket_1_y_pos + tool_offset;
     }
 
     return target;
@@ -276,7 +271,7 @@ static status_code_t spindle(bool load) {
         return Status_OK;
     }
 
-    if(next_tool->tool_id > atc_settings.number_of_pockets) {
+    if(next_tool->tool_id > atc.number_of_pockets) {
         debug_output("Tool number is larger than pocket. Manual Tool Change", NULL, NULL);
         if(load) {
             manualToolLoad();
@@ -291,57 +286,56 @@ static status_code_t spindle(bool load) {
 
     // Lets stop the spindle and set the feed rate for all moves.
     plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){0}, 0.0f);
-    plan_data.feed_rate = atc_settings.tool_engagement_feed_rate;
+    plan_data.feed_rate = atc.tool_engagement_feed_rate;
     plan_data.condition.rapid_motion = Off;
-
 
     system_convert_array_steps_to_mpos(current_pos.values, sys.position);
     debug_output("Getting Current POS", &current_pos, &plan_data);
 
     // Raise Z to safe clearance
     target = current_pos;
-    target.z = atc_settings.tool_z_safe_clearance;
+    target.z = atc.tool_z_safe_clearance;
     debug_output("Raising Z to Clearance Height", NULL, &plan_data);
     mc_line(target.values, &plan_data);
 
     // Get X,Y for current tool and move to that position
     target = get_tool_location((load?*next_tool:current_tool));
-    target.z = atc_settings.tool_z_safe_clearance;
+    target.z = atc.tool_z_safe_clearance;
     debug_output("Determine tool position and go there", &target, &plan_data);
     mc_line(target.values, &plan_data);
 
-    target.z = atc_settings.tool_start_height;
+    target.z = atc.tool_start_height;
     debug_output("Going to Spindle Start Height", &target, &plan_data);
     mc_line(target.values, &plan_data);
 
     // Turn on the spindle CCW
     if(load) {
-        plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On }, atc_settings.tool_pickup_rpm);
+        plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On }, atc.tool_pickup_rpm);
     } else {
-        plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On, .ccw = On }, atc_settings.tool_dropoff_rpm);
+        plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On, .ccw = On }, atc.tool_dropoff_rpm);
     }
 
     // move to engagement height
-    target.z = atc_settings.tool_z_engagement;
+    target.z = atc.tool_z_engagement;
     debug_output("Turning on spindle and moving to engagement height", &target, &plan_data);
     mc_line(target.values, &plan_data);
 
     // Are we doing tool recognition
-    if(atc_settings.tool_recognition) {
+    if(atc.tool_recognition) {
         debug_output("Tool Recognition Enabled", NULL, NULL);
         // Move spindle to zone 2
-        target.z = atc_settings.toolrecognition_detect_zone_2;
+        target.z = atc.toolrecognition_detect_zone_2;
         debug_output("Moving to zone 2", &target, &plan_data);
         mc_line(target.values, &plan_data);
         // Wait for spindle to be in the correct location
         protocol_buffer_synchronize();
         // IF the nut isn't all the way on lets try again
         if(laserBlocked()) {
-            target.z = atc_settings.tool_z_engagement;
+            target.z = atc.tool_z_engagement;
             debug_output("Detection Failed Trying again", NULL, NULL);
 
             mc_line(target.values, &plan_data);
-            target.z = atc_settings.toolrecognition_detect_zone_1;
+            target.z = atc.toolrecognition_detect_zone_1;
             mc_line(target.values, &plan_data);
             protocol_buffer_synchronize();
         }
@@ -352,8 +346,7 @@ static status_code_t spindle(bool load) {
         }
 
         // Bring Spindle up and Turn off spindle
-
-        target.z = atc_settings.tool_z_safe_clearance;
+        target.z = atc.tool_z_safe_clearance;
         plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t)(spindle_state_t){ .on = Off }, 0.0f);
         debug_output("Stopping spindle and raising to clearance height", &target, &plan_data);
         mc_line(target.values, &plan_data);
@@ -409,9 +402,8 @@ static status_code_t tool_change (parser_state_t *parser_state)
         return Status_HomingRequired;
 #endif
 
-    coord_data_t previous;
-
     // Save current position
+    coord_data_t previous;
     system_convert_array_steps_to_mpos(previous.values, sys.position);
 
     debug_output("Turning off Coolant", NULL, NULL);
@@ -442,6 +434,7 @@ static void report_options (bool newopt)
 // Claim HAL tool change entry points and clear current tool offsets.
 void my_plugin_init (void)
 {
+    protocol_enqueue_foreground_task(report_info, "RapidChange ATC plugin trying to initialize!");
     hal.driver_cap.atc = On;
 
     on_report_options = grbl.on_report_options;
@@ -460,7 +453,7 @@ void my_plugin_init (void)
     if((nvs_address = nvs_alloc(sizeof(atc_settings_t)))) {
          settings_register(&setting_details);
     } else {
-        protocol_enqueue_rt_command(warning_mem);
+        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin failed to initialize, no NVS storage for settings!");
     }
 
     if(driver_reset == NULL) {
