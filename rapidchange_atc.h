@@ -25,15 +25,38 @@
 // Used to disable some functionality while developing
 #define DEBUG 0
 
+// Hal settings API
 static void atc_settings_save (void);
-static void atc_settings_restore (void);
-static coord_data_t get_tool_location(tool_data_t tool);
 static void atc_settings_load (void);
+static void atc_settings_restore (void);
+
+// HAL plugin API
 static void reset (void);
+static void report_options (bool newopt);
+
+// FluidNC port
+static coord_data_t calculate_tool_pos (tool_id_t tool_id);
+static coord_data_t get_manual_pos (void);
+static coord_data_t get_tool_pos (tool_id_t tool_id);
+static bool tool_has_pocket (tool_id_t tool_id);
+
+static void spin_cw (float speed, int16_t delay);
+static void spin_ccw (float speed, int16_t delay);
+static void spin_stop (void);
+static status_code_t rapid_to_pocket_xy (tool_id_t tool_id);
+static status_code_t rapid_to_z (float position);
+static status_code_t linear_to_z (float position, float feedrate);
+static void open_dust_cover (bool open);
+static void load_tool (tool_id_t tool_id);
+static void set_tool (void);
+static void record_program_state (void);
+static bool restore_program_state (void);
+static void set_tool_change_state (void);
+static void unload_tool (void);
+
+// HAL tool change API
 static void tool_select (tool_data_t *tool, bool next);
 static status_code_t tool_change (parser_state_t *parser_state);
-static void report_options (bool newopt);
-static void manualToolUnLoad ();
-static void manualToolLoad ();
-static void debug_output(char* message, coord_data_t *target, plan_line_data_t *pl_data);
+// void my_plugin_init (void)
+static void debug_output (char* message, coord_data_t *target, plan_line_data_t *pl_data);
 #endif
