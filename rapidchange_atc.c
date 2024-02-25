@@ -217,9 +217,8 @@ static coord_data_t get_tool_location(tool_data_t tool) {
     target.x = atc.pocket_1_x_pos;
     target.y = atc.pocket_1_y_pos;
 
-    float tool_offset = (tool.tool_id - 1) * atc.pocket_offset;
-    if(atc.direction != 0)
-        tool_offset *= -1.F;
+    int8_t multiplier = atc.direction ? -1 : 1;
+    float tool_offset = (tool.tool_id - 1) * atc.pocket_offset * multiplier;
 
     if(atc.alignment == 0) { // X Axis
         target.x = atc.pocket_1_x_pos + tool_offset;
@@ -329,7 +328,7 @@ static status_code_t spindle(bool load) {
         mc_line(target.values, &plan_data);
         // Wait for spindle to be in the correct location
         protocol_buffer_synchronize();
-        // IF the nut isn't all the way on lets try again
+        // If the nut isn't all the way on lets try again
         if(laserBlocked()) {
             target.z = atc.tool_z_engagement;
             debug_output("Detection Failed Trying again", NULL, NULL);
