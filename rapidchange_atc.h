@@ -37,5 +37,4 @@ static void manualToolUnLoad ();
 static void manualToolLoad ();
 static bool laserBlocked();
 static void debug_output(char* message, coord_data_t *target, plan_line_data_t *pl_data);
-static bool is_setting_available (const setting_detail_t *setting);
 #endif
