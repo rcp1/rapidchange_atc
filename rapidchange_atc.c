@@ -471,11 +471,6 @@ static void report_options (bool newopt)
     }
 }
 
-static void warning_mem (uint_fast16_t state)
-{
-    report_message("Embroidery plugin failed to initialize, no NVS storage for settings!", Message_Warning);
-}
-
 // Claim HAL tool change entry points and clear current tool offsets.
 void my_plugin_init (void)
 {
