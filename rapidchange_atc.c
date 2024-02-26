@@ -455,6 +455,7 @@ static void set_tool() {
 // Set next and/or current tool. Called by gcode.c on on a Tn or M61 command (via HAL).
 static void tool_select (tool_data_t *tool, bool next)
 {
+    debug_output("Tool select.", NULL, NULL);
     next_tool = tool;
     if(!next)
         memcpy(&current_tool, tool, sizeof(tool_data_t));
@@ -463,8 +464,11 @@ static void tool_select (tool_data_t *tool, bool next)
 // Start a tool change sequence. Called by gcode.c on a M6 command (via HAL).
 static status_code_t tool_change (parser_state_t *parser_state)
 {
-    if(next_tool == NULL)
+    debug_output("Tool change.", NULL, NULL);
+    if(next_tool == NULL) {
+        debug_output("Next tool is not available!", NULL, NULL);
         return Status_GCodeToolError;
+    }
 
     if(current_tool.tool_id == next_tool->tool_id) {
         debug_output("Current tool selected, tool change bypassed.", NULL, NULL);
@@ -483,14 +487,19 @@ static status_code_t tool_change (parser_state_t *parser_state)
     record_program_state();
 
     set_tool_change_state();
+    debug_output("After set tool change state.", NULL, NULL);
     unload_tool();
+    debug_output("After unload tool.", NULL, NULL);
     load_tool(next_tool->tool_id);
+    debug_output("After load tool.", NULL, NULL);
     set_tool();
+    debug_output("After load tool.", NULL, NULL);
     open_dust_cover(false);
 
     bool ok = restore_program_state();
+    debug_output("Finished.", NULL, NULL);
 
-    return ok;
+    return Status_OK;
 }
 
 // Claim HAL tool change entry points and clear current tool offsets.
