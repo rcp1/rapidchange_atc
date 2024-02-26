@@ -452,6 +452,7 @@ static void set_tool() {
 }
 
 // HAL tool change API
+// Set next and/or current tool. Called by gcode.c on on a Tn or M61 command (via HAL).
 static void tool_select (tool_data_t *tool, bool next)
 {
     next_tool = tool;
@@ -459,6 +460,7 @@ static void tool_select (tool_data_t *tool, bool next)
         memcpy(&current_tool, tool, sizeof(tool_data_t));
 }
 
+// Start a tool change sequence. Called by gcode.c on a M6 command (via HAL).
 static status_code_t tool_change (parser_state_t *parser_state)
 {
     if(next_tool == NULL)
