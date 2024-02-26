@@ -55,7 +55,7 @@ static volatile bool execute_posted = false;
 static volatile uint32_t spin_lock = 0;
 static nvs_address_t nvs_address;
 static atc_settings_t atc;
-static tool_data_t current_tool, *next_tool = NULL;
+static tool_data_t current_tool = {0}, *next_tool = NULL;
 static driver_reset_ptr driver_reset = NULL;
 static on_report_options_ptr on_report_options;
 static coord_data_t target = {0}, previous;
@@ -228,9 +228,13 @@ static status_code_t rapid_to_pocket_xy(tool_id_t tool_id) {
     plan_line_data_t plan_data;
     plan_data_init(&plan_data);
     plan_data.condition.rapid_motion = On;
-    target = get_tool_pos(tool_id);
+    coord_data_t tool = get_tool_pos(tool_id);
+    target.x = tool.x;
+    target.y = tool.y;
     if(!mc_line(target.values, &plan_data))
         return Status_Reset;
+
+    protocol_buffer_synchronize();
 
     return Status_OK;
 }
@@ -243,6 +247,8 @@ static status_code_t rapid_to_z(float position) {
     if(!mc_line(target.values, &plan_data))
         return Status_Reset;
 
+    protocol_buffer_synchronize();
+
     return Status_OK;
 }
 
@@ -253,6 +259,8 @@ static status_code_t linear_to_z(float position, float feed_rate) {
     plan_data.feed_rate = feed_rate;
     if(!mc_line(target.values, &plan_data))
         return Status_Reset;
+
+    protocol_buffer_synchronize();
 
     return Status_OK;
 }
@@ -287,6 +295,8 @@ void record_program_state() {
     system_convert_array_steps_to_mpos(previous.values, sys.position);
     // Establish axis assignments.
     previous.z -= gc_get_offset(Z_AXIS);
+    // Store current position as start
+    memcpy(&target, &previous, sizeof(coord_data_t));
 }
 
 static bool restore_program_state (void) {
