@@ -47,6 +47,13 @@ typedef struct {
     float    unload_rpm;
     uint16_t spindle_ramp_time;
     bool     tool_setter;
+    float    tool_setter_x;
+    float    tool_setter_y;
+    float    tool_setter_z_seek_start;
+    float    tool_setter_seek_feed_rate;
+    float    tool_setter_set_feed_rate;
+    float    tool_setter_max_travel;
+    float    tool_setter_seek_retreat;
     bool     tool_recognition;
     bool     dust_cover;
 } atc_settings_t;
@@ -81,6 +88,13 @@ static const setting_detail_t atc_settings[] = {
     { 922, Group_UserSettings, "Pocket Unload Spindle RPM", "rpm", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.unload_rpm, NULL, NULL },
     { 923, Group_UserSettings, "Spindle Ramp-up Wait Time", "ms", Format_Int16, "###0", "0", "60000", Setting_NonCore, &atc.spindle_ramp_time, NULL, NULL },
     { 930, Group_UserSettings, "Tool Setter", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_NonCore, &atc.tool_setter, NULL, NULL },
+    { 931, Group_UserSettings, "Tool Setter X Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_x, NULL, NULL },
+    { 932, Group_UserSettings, "Tool Setter Y Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_y, NULL, NULL },
+    { 933, Group_UserSettings, "Tool Setter Z Seek Start", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_z_seek_start, NULL, NULL },
+    { 934, Group_UserSettings, "Tool Setter Seek Feed Rate", "mm/min", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.tool_setter_seek_feed_rate, NULL, NULL },
+    { 935, Group_UserSettings, "Tool Setter Set Feed Rate", "mm/min", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.tool_setter_set_feed_rate, NULL, NULL },
+    { 936, Group_UserSettings, "Tool Setter Max Travel", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_max_travel, NULL, NULL },
+    { 937, Group_UserSettings, "Tool Setter Seek Retreat", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_seek_retreat, NULL, NULL },
     { 940, Group_UserSettings, "Tool Recognition", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_NonCore, &atc.tool_recognition, NULL, NULL },
     { 950, Group_UserSettings, "Dust Cover", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_NonCore, &atc.dust_cover, NULL, NULL },
 };
@@ -104,6 +118,13 @@ static const setting_descr_t atc_descriptions[] = {
     { 922, "Value: Spindle Speed (rpm)\\n\\nThe rpm at which to operate the spindle when unloading a tool." },
     { 923, "Value: Spindle Ramp-up Wait Time (ms)\\n\\nThe wait time till the spindle reaches the (un-)load speed." },
     { 930, "Value: Enabled or Disabled\\n\\nAllows for enabling or disabling setting the tool offset during a tool change. This can be useful when configuring your magazine or performing diagnostics to shorten the tool change cycle." },
+    { 931, "Value: X Machine Coordinate (mm)\\n\\nThe X axis position referencing the center of the tool setter." },
+    { 932, "Value: Y Machine Coordinate (mm)\\n\\nThe Y axis position referencing the center of the tool setter." },
+    { 933, "Value: Z Machine Coordinate (mm)\\n\\nThe Z position to which the spindle moves before starting the tool setting probe cycle." },
+    { 934, "Value: Feed Rate (mm/min)\\n\\nThe feed rate to quickly find the tool change sensor before the slower locating phase." },
+    { 935, "Value: Feed Rate (mm/min)\\n\\nThe feed rate to slowly engage tool change sensor to determine the tool offset accurately." },
+    { 936, "Value: Distance (mm)\\n\\nThe maximum probing distance for tool setting." },
+    { 937, "Value: Distance (mm)\\n\\nThe pull-off distance for the retract move before the slower locating phase." },
     { 940, "Value: Enabled or Disabled\\n\\nEnables or disables tool recognition as part of an automatic tool change. If tool recognition is included with your magazine, be sure to properly configure the appropriate settings before enabling." },
     { 950, "Value: Enabled or Disabled\\n\\nEnables or disables the dust cover. If a dust cover is included with your magazine, be sure to properly configure the appropriate settings before enabling." },
 };
@@ -139,6 +160,11 @@ static void atc_settings_restore (void)
     atc.engage_feed_rate = 1800.0f;
     atc.load_rpm = 1200.0f;
     atc.unload_rpm = 1200.0f;
+    atc.tool_setter_z_seek_start = -10.0f;
+    atc.tool_setter_seek_feed_rate = DEFAULT_TOOLCHANGE_SEEK_RATE;
+    atc.tool_setter_set_feed_rate = DEFAULT_TOOLCHANGE_FEED_RATE;
+    atc.tool_setter_max_travel = DEFAULT_TOOLCHANGE_PROBING_DISTANCE;
+    atc.tool_setter_seek_retreat = 2.0f;
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&atc, sizeof(atc_settings_t), true);
 }
@@ -222,6 +248,20 @@ static coord_data_t get_tool_pos (tool_id_t tool_id) {
 
 static bool tool_has_pocket (tool_id_t tool_id) {
     return tool_id != 0 && tool_id <= atc.number_of_pockets;
+}
+
+static status_code_t rapid_to_tool_setter_xy() {
+    plan_line_data_t plan_data;
+    plan_data_init(&plan_data);
+    plan_data.condition.rapid_motion = On;
+    target.x = atc.tool_setter_x;
+    target.y = atc.tool_setter_y;
+    if(!mc_line(target.values, &plan_data))
+        return Status_Reset;
+
+    protocol_buffer_synchronize();
+
+    return Status_OK;
 }
 
 static status_code_t rapid_to_pocket_xy(tool_id_t tool_id) {
@@ -439,14 +479,49 @@ static void load_tool(tool_id_t tool_id) {
     // current_tool.tool_id = tool_id;
 }
 
-static void set_tool() {
+static void set_tool (void) {
     // If the tool setter is disabled or if we don't have a tool, rise up and be done
     if (!atc.tool_setter || current_tool.tool_id == 0) {
         rapid_to_z(atc.z_safe_clearance);
         return;
     }
 
-    // TODO(rcp1) Implement tool set
+    rapid_to_z(atc.z_traverse);
+    rapid_to_tool_setter_xy();
+    rapid_to_z(atc.tool_setter_z_seek_start);
+
+    // Probe cycle using GCode interface since tool change interface is private
+    gc_parser_flags_t flags;
+    plan_line_data_t plan_data;
+    plan_data_init(&plan_data);
+    plan_data.feed_rate = atc.tool_setter_seek_feed_rate;
+    target.z -= atc.tool_setter_max_travel;
+    bool ok = true;
+    // Locate probe
+    if((ok = ok && mc_probe_cycle(target.values, &plan_data, flags) == GCProbe_Found))
+    {
+        system_convert_array_steps_to_mpos(target.values, sys.probe_position);
+
+        // Retract a bit and perform slow probe
+        target.z += atc.tool_setter_seek_retreat;
+        if((ok = mc_line(target.values, &plan_data))) {
+            plan_data.feed_rate = atc.tool_setter_set_feed_rate;
+            target.z -= (atc.tool_setter_seek_retreat + 2.0f);
+            ok = mc_probe_cycle(target.values, &plan_data, flags) == GCProbe_Found;
+        }
+    }
+
+    if(ok) {
+        if(!(sys.tlo_reference_set.mask & bit(Z_AXIS))) {
+            sys.tlo_reference[Z_AXIS] = sys.probe_position[Z_AXIS];
+            sys.tlo_reference_set.mask |= bit(Z_AXIS);
+            system_add_rt_report(Report_TLOReference);
+            grbl.report.feedback_message(Message_ReferenceTLOEstablished);
+        } else
+            gc_set_tool_offset(ToolLengthOffset_EnableDynamic, Z_AXIS,
+                                sys.probe_position[Z_AXIS] - sys.tlo_reference[Z_AXIS]);
+    }
+
     rapid_to_z(atc.z_safe_clearance);
     return;
 }
