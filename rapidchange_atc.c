@@ -133,9 +133,9 @@ static void atc_settings_restore (void)
     atc.y_pocket_1 = 0.0f;
     atc.z_start = 23.0f;
     atc.z_retract = 13.0f;
-    atc.z_engage = 0.0f;
-    atc.z_traverse = 0.0f;
-    atc.z_safe_clearance = 0.0f;
+    atc.z_engage = -10.0f;
+    atc.z_traverse = -10.0f;
+    atc.z_safe_clearance = -10.0f;
     atc.engage_feed_rate = 1800.0f;
     atc.load_rpm = 1200.0f;
     atc.unload_rpm = 1200.0f;
