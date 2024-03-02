@@ -5,7 +5,7 @@
 ## Todo
 
 - [x] Tool change working
-- [ ] Use atc_init instead of my_plugin_init
+- [x] Use atc_init instead of my_plugin_init
 - [ ] Setting variation tests
 - [ ] Error handling
 - [ ] Tool setter

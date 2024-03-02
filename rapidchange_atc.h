@@ -57,6 +57,6 @@ static void unload_tool (void);
 // HAL tool change API
 static void tool_select (tool_data_t *tool, bool next);
 static status_code_t tool_change (parser_state_t *parser_state);
-// void my_plugin_init (void)
+void atc_init (void);
 static void debug_output (char* message, coord_data_t *target, plan_line_data_t *pl_data);
 #endif

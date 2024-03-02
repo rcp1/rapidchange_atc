@@ -503,7 +503,7 @@ static status_code_t tool_change (parser_state_t *parser_state)
 }
 
 // Claim HAL tool change entry points and clear current tool offsets.
-void my_plugin_init (void)
+void atc_init (void)
 {
     protocol_enqueue_foreground_task(report_info, "RapidChange ATC plugin trying to initialize!");
     hal.driver_cap.atc = On;
