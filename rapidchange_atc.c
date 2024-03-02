@@ -76,7 +76,7 @@ static const setting_detail_t atc_settings[] = {
     { 912, Group_UserSettings, "Pocket Z Engage", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.z_engage, NULL, NULL },
     { 913, Group_UserSettings, "Pocket Z Traverse", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.z_traverse, NULL, NULL },
     { 914, Group_UserSettings, "Pocket Z Safe Clearance", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.z_safe_clearance, NULL, NULL },
-    { 920, Group_UserSettings, "Pocket Engage Feed Rate", "mm/min", Format_Decimal, "###0", "0", "3000", Setting_NonCore, &atc.engage_feed_rate, NULL, NULL },
+    { 920, Group_UserSettings, "Pocket Engage Feed Rate", "mm/min", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.engage_feed_rate, NULL, NULL },
     { 921, Group_UserSettings, "Pocket Load Spindle RPM", "rpm", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.load_rpm, NULL, NULL },
     { 922, Group_UserSettings, "Pocket Unload Spindle RPM", "rpm", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.unload_rpm, NULL, NULL },
     { 923, Group_UserSettings, "Spindle Ramp-up Wait Time", "ms", Format_Int16, "###0", "0", "60000", Setting_NonCore, &atc.spindle_ramp_time, NULL, NULL },
