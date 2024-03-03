@@ -254,7 +254,8 @@ static coord_data_t get_manual_pos (void) {
     coord_data_t target = {0};
     memset(&target, 0, sizeof(coord_data_t)); // Zero plan_data struct
 
-    // TODO(rcp1) Fill with tool setter data
+    target.x = atc.tool_setter_x;
+    target.y = atc.tool_setter_y;
 
     return target;
 }
@@ -416,6 +417,11 @@ static void set_tool_change_state(void) {
     sync_position();
 }
 
+static void pause (void) {
+    system_set_exec_state_flag(EXEC_FEED_HOLD); // Use feed hold for program pause.
+    protocol_execute_realtime(); // Execute suspend
+}
+
 static bool unload_tool(void) {
     if(!rapid_to_z(atc.z_safe_clearance))
         return false;
@@ -452,7 +458,7 @@ static bool unload_tool(void) {
     } else {
         RAPIDCHANGE_DEBUG_PRINT("Current tool does not have an assigned pocket.");
         RAPIDCHANGE_DEBUG_PRINT("Please unload the tool manually and cycle start to continue.");
-        // TODO(rcp1) Pause M0
+        pause();
     }
 
     // The tool has been removed, set current tool to 0, only set for completeness, not used anywhere
@@ -497,7 +503,7 @@ static bool load_tool(tool_id_t tool_id) {
             return false;
         RAPIDCHANGE_DEBUG_PRINT("Selected tool does not have an assigned pocket.");
         RAPIDCHANGE_DEBUG_PRINT("Please load the selected tool and press cycle start to continue.");
-        // TODO(rcp1) Pause M0
+        pause();
     }
 
     // We've loaded our tool
