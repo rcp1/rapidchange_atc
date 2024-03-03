@@ -200,6 +200,7 @@ static void reset (void)
         next_tool = NULL;
     }
 
+    // change_completed();
     driver_reset();
 }
 
@@ -250,21 +251,19 @@ static bool tool_has_pocket (tool_id_t tool_id) {
     return tool_id != 0 && tool_id <= atc.number_of_pockets;
 }
 
-static status_code_t rapid_to_tool_setter_xy() {
+static bool rapid_to_tool_setter_xy() {
     plan_line_data_t plan_data;
     plan_data_init(&plan_data);
     plan_data.condition.rapid_motion = On;
     target.x = atc.tool_setter_x;
     target.y = atc.tool_setter_y;
     if(!mc_line(target.values, &plan_data))
-        return Status_Reset;
+        return false;
 
-    protocol_buffer_synchronize();
-
-    return Status_OK;
+    return protocol_buffer_synchronize();
 }
 
-static status_code_t rapid_to_pocket_xy(tool_id_t tool_id) {
+static bool rapid_to_pocket_xy(tool_id_t tool_id) {
     plan_line_data_t plan_data;
     plan_data_init(&plan_data);
     plan_data.condition.rapid_motion = On;
@@ -272,37 +271,34 @@ static status_code_t rapid_to_pocket_xy(tool_id_t tool_id) {
     target.x = tool.x;
     target.y = tool.y;
     if(!mc_line(target.values, &plan_data))
-        return Status_Reset;
+        return false;
 
-    protocol_buffer_synchronize();
-
-    return Status_OK;
+    return protocol_buffer_synchronize();
 }
 
-static status_code_t rapid_to_z(float position) {
+static bool rapid_to_z(float position) {
     plan_line_data_t plan_data;
     plan_data_init(&plan_data);
     plan_data.condition.rapid_motion = On;
     target.z = position;
     if(!mc_line(target.values, &plan_data))
-        return Status_Reset;
+        return false;
 
-    protocol_buffer_synchronize();
-
-    return Status_OK;
+    debug_output("Before sync.", NULL, NULL);
+    bool t = protocol_buffer_synchronize();
+    debug_output("After sync.", NULL, NULL);
+    return t;
 }
 
-static status_code_t linear_to_z(float position, float feed_rate) {
+static bool linear_to_z(float position, float feed_rate) {
     plan_line_data_t plan_data;
     plan_data_init(&plan_data);
     target.z = position;
     plan_data.feed_rate = feed_rate;
     if(!mc_line(target.values, &plan_data))
-        return Status_Reset;
+        return false;
 
-    protocol_buffer_synchronize();
-
-    return Status_OK;
+    return protocol_buffer_synchronize();
 }
 
 static void message_start() {
@@ -321,6 +317,8 @@ static void open_dust_cover(bool open) {
     }
 
     // TODO(rcp1) Open dust cover
+
+    // hal.delay_ms(500, NULL);
 
     return;
 }
@@ -381,46 +379,49 @@ static void set_tool_change_state(void) {
     sync_position();
 }
 
-static void unload_tool(void) {
-    rapid_to_z(atc.z_safe_clearance);
+static bool unload_tool(void) {
+    if (!rapid_to_z(atc.z_safe_clearance))
+        return false;
 
     // if we don't have a tool we're done
     if (current_tool.tool_id == 0) {
-        open_dust_cover(true);
-        return;
+        return true;
     }
 
     // If the tool has a pocket, unload
     if (tool_has_pocket(current_tool.tool_id)) {
 
         // Perform first attempt
-        rapid_to_pocket_xy(current_tool.tool_id);
-        open_dust_cover(true);
-        hal.delay_ms(500, NULL);
+        if (!rapid_to_pocket_xy(current_tool.tool_id))
+            return false;
 
-        rapid_to_z(atc.z_engage + atc.z_start);
+        if (!rapid_to_z(atc.z_engage + atc.z_start))
+            return false;
         spin_ccw(atc.unload_rpm);
-        linear_to_z(atc.z_engage, atc.engage_feed_rate);
+        if (!linear_to_z(atc.z_engage, atc.engage_feed_rate))
+            return false;
 
         // If we're using tool recognition, handle it
         if (atc.tool_recognition) {
             // TODO(rcp1) Add tool recognition handling
         // If we're not using tool recognition, go straight to traverse height for loading
         } else {
-            rapid_to_z(atc.z_traverse);
+            if (!rapid_to_z(atc.z_traverse))
+                return false;
             spin_stop();
         }
 
     // If the tool doesn't have a pocket, let's pause for manual removal
     } else {
-        open_dust_cover(true);
         debug_output("Current tool does not have an assigned pocket.", NULL, NULL);
         debug_output("Please unload the tool manually and cycle start to continue.", NULL, NULL);
         // TODO(rcp1) Pause M0
     }
 
-    // The tool has been removed, set current tool to 0
-    // current_tool.tool_id = 0;
+    // The tool has been removed, set current tool to 0, only set for completeness, not used anywhere
+    current_tool.tool_id = 0;
+
+    return true;
 }
 
 static void spin_cw(float speed) {
@@ -444,34 +445,40 @@ static void spin_stop() {
     hal.delay_ms(atc.spindle_ramp_time, NULL);
 }
 
-static void load_tool(tool_id_t tool_id) {
+static bool load_tool(tool_id_t tool_id) {
 
     // If loading tool 0, we're done
     if (tool_id == 0) {
-        return;
+        return true;
     }
 
     // If selected tool has a pocket, perform automatic pick up
     if (tool_has_pocket(tool_id)) {
-        rapid_to_pocket_xy(tool_id);
-        rapid_to_z(atc.z_engage + atc.z_start);
+        if (!rapid_to_pocket_xy(tool_id))
+            return false;
+        if (!rapid_to_z(atc.z_engage + atc.z_start))
+            return false;
         spin_cw(atc.load_rpm);
-        linear_to_z(atc.z_engage, atc.engage_feed_rate);
-        rapid_to_z(atc.z_engage + atc.z_retract);
-        linear_to_z(atc.z_engage, atc.engage_feed_rate);
+        if (!linear_to_z(atc.z_engage, atc.engage_feed_rate))
+            return false;
+        if (!rapid_to_z(atc.z_engage + atc.z_retract))
+            return false;
+        if (!linear_to_z(atc.z_engage, atc.engage_feed_rate))
+            return false;
 
         // If we're using tool recognition, let's handle it
         if (atc.tool_recognition) {
             // TODO(rcp1) Handle tool recognition
-        // Otherwise we're not using tool recognition so let's get ready to set the tool offset
-        } else {
-            rapid_to_z(atc.z_traverse);
-            spin_stop();
         }
+
+        if (!rapid_to_z(atc.z_traverse))
+            return false;
+        spin_stop();
 
     // Otherwise, there is no pocket so let's rise and pause to load manually
     } else {
-        rapid_to_z(atc.z_safe_clearance);
+        if (!rapid_to_z(atc.z_safe_clearance))
+            return false;
         debug_output("Selected tool does not have an assigned pocket.", NULL, NULL);
         debug_output("Please load the selected tool and press cycle start to continue.", NULL, NULL);
         // TODO(rcp1) Pause M0
@@ -482,13 +489,16 @@ static void load_tool(tool_id_t tool_id) {
         sync_position();
         memcpy(&current_tool, next_tool, sizeof(tool_data_t));
     }
+
+    return true;
 }
 
-static void set_tool (void) {
+static bool set_tool (void) {
     // If the tool setter is disabled or if we don't have a tool, rise up and be done
     if (!atc.tool_setter || current_tool.tool_id == 0) {
-        rapid_to_z(atc.z_safe_clearance);
-        return;
+        if (!rapid_to_z(atc.z_safe_clearance))
+            return false;
+        return true;
     }
 
     debug_output("Move to probe.", NULL, NULL);
@@ -538,8 +548,11 @@ static void set_tool (void) {
     }
 
     debug_output("End of probing.", NULL, NULL);
-    rapid_to_z(atc.z_safe_clearance);
-    return;
+    if (ok)
+      if (!rapid_to_z(atc.z_safe_clearance))
+        return false;
+
+    return ok;
 }
 
 // HAL tool change API
@@ -555,6 +568,7 @@ static void tool_select (tool_data_t *tool, bool next)
 // Start a tool change sequence. Called by gcode.c on a M6 command (via HAL).
 static status_code_t tool_change (parser_state_t *parser_state)
 {
+    bool ok = true;
     debug_output("Tool change.", NULL, NULL);
     if(next_tool == NULL) {
         debug_output("Next tool is not available!", NULL, NULL);
@@ -579,15 +593,31 @@ static status_code_t tool_change (parser_state_t *parser_state)
 
     set_tool_change_state();
     debug_output("After set tool change state.", NULL, NULL);
-    unload_tool();
+
+    open_dust_cover(true);
+
+    ok = unload_tool();
+    if (!ok)
+        return Status_GCodeToolError;
     debug_output("After unload tool.", NULL, NULL);
-    load_tool(next_tool->tool_id);
+
+    ok = load_tool(next_tool->tool_id);
+    if (!ok)
+        return Status_GCodeToolError;
     debug_output("After load tool.", NULL, NULL);
-    set_tool();
+
+    ok = set_tool();
+    if (!ok)
+        return Status_GCodeToolError;
     debug_output("After set tool.", NULL, NULL);
+
     open_dust_cover(false);
 
-    bool ok = restore_program_state();
+    ok = restore_program_state();
+    if (!ok)
+        return Status_GCodeToolError;
+
+    // change_completed();
     debug_output("Finished.", NULL, NULL);
 
     return Status_OK;

@@ -43,16 +43,16 @@ static bool tool_has_pocket (tool_id_t tool_id);
 static void spin_cw (float speed);
 static void spin_ccw (float speed);
 static void spin_stop (void);
-static status_code_t rapid_to_pocket_xy (tool_id_t tool_id);
-static status_code_t rapid_to_z (float position);
-static status_code_t linear_to_z (float position, float feedrate);
+static bool rapid_to_pocket_xy (tool_id_t tool_id);
+static bool rapid_to_z (float position);
+static bool linear_to_z (float position, float feedrate);
 static void open_dust_cover (bool open);
-static void load_tool (tool_id_t tool_id);
-static void set_tool (void);
+static bool load_tool (tool_id_t tool_id);
+static bool set_tool (void);
 static void record_program_state (void);
 static bool restore_program_state (void);
 static void set_tool_change_state (void);
-static void unload_tool (void);
+static bool unload_tool (void);
 
 // HAL tool change API
 static void tool_select (tool_data_t *tool, bool next);
