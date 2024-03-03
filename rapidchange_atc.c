@@ -367,10 +367,11 @@ static bool restore_program_state (void) {
         }
     }
 
-    if(protocol_buffer_synchronize()) {
-        sync_position();
-        memcpy(&current_tool, next_tool, sizeof(tool_data_t));
-    }
+    // Already done after load tool
+    // if(protocol_buffer_synchronize()) {
+    //     sync_position();
+    //     memcpy(&current_tool, next_tool, sizeof(tool_data_t));
+    // }
 
     return !ABORTED;
 }
@@ -476,7 +477,10 @@ static void load_tool(tool_id_t tool_id) {
     }
 
     // We've loaded our tool
-    // current_tool.tool_id = tool_id;
+    if(protocol_buffer_synchronize()) {
+        sync_position();
+        memcpy(&current_tool, next_tool, sizeof(tool_data_t));
+    }
 }
 
 static void set_tool (void) {
@@ -486,13 +490,16 @@ static void set_tool (void) {
         return;
     }
 
-    rapid_to_z(atc.z_traverse);
+    debug_output("Move to probe.", NULL, NULL);
+    rapid_to_z(atc.z_safe_clearance);
     rapid_to_tool_setter_xy();
     rapid_to_z(atc.tool_setter_z_seek_start);
 
+    debug_output("Probe cycle.", NULL, NULL);
     // Probe cycle using GCode interface since tool change interface is private
-    gc_parser_flags_t flags;
     plan_line_data_t plan_data;
+    gc_parser_flags_t flags = {0};
+
     plan_data_init(&plan_data);
     plan_data.feed_rate = atc.tool_setter_seek_feed_rate;
     target.z -= atc.tool_setter_max_travel;
@@ -512,6 +519,7 @@ static void set_tool (void) {
     }
 
     if(ok) {
+        debug_output("Set TLO.", NULL, NULL);
         if(!(sys.tlo_reference_set.mask & bit(Z_AXIS))) {
             sys.tlo_reference[Z_AXIS] = sys.probe_position[Z_AXIS];
             sys.tlo_reference_set.mask |= bit(Z_AXIS);
@@ -520,8 +528,15 @@ static void set_tool (void) {
         } else
             gc_set_tool_offset(ToolLengthOffset_EnableDynamic, Z_AXIS,
                                 sys.probe_position[Z_AXIS] - sys.tlo_reference[Z_AXIS]);
+
+        char tlo_msg[20];
+        float pos[3];
+        system_convert_array_steps_to_mpos(pos, sys.tlo_reference);
+        sprintf(tlo_msg, "Current TLO: %3.2f", pos[Z_AXIS]);
+        debug_output(tlo_msg, NULL, NULL);
     }
 
+    debug_output("End of probing.", NULL, NULL);
     rapid_to_z(atc.z_safe_clearance);
     return;
 }
@@ -568,7 +583,7 @@ static status_code_t tool_change (parser_state_t *parser_state)
     load_tool(next_tool->tool_id);
     debug_output("After load tool.", NULL, NULL);
     set_tool();
-    debug_output("After load tool.", NULL, NULL);
+    debug_output("After set tool.", NULL, NULL);
     open_dust_cover(false);
 
     bool ok = restore_program_state();
