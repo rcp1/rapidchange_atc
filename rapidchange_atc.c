@@ -524,9 +524,12 @@ static bool set_tool (void) {
     }
 
     RAPIDCHANGE_DEBUG_PRINT("Move to probe.");
-    rapid_to_z(atc.z_safe_clearance);
-    rapid_to_tool_setter_xy();
-    rapid_to_z(atc.tool_setter_z_seek_start);
+    if(!rapid_to_z(atc.z_safe_clearance))
+        return false;
+    if(!rapid_to_tool_setter_xy())
+        return false;
+    if(!rapid_to_z(atc.tool_setter_z_seek_start))
+        return false;
 
     RAPIDCHANGE_DEBUG_PRINT("Probe cycle.");
     // Probe cycle using GCode interface since tool change interface is private
