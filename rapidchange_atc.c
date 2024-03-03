@@ -4,6 +4,7 @@
   Part of grblHAL
 
   Copyright (c) 2024 rvalotta
+  Copyright (c) 2024 rcp1
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -200,6 +201,7 @@ static setting_details_t setting_details = {
 // Called from EXEC_RESET and EXEC_STOP handlers (via HAL).
 static void reset (void)
 {
+    RAPIDCHANGE_DEBUG_PRINT("Reset.");
     if(next_tool) { //TODO: move to gc_xxx() function?
         // Restore previous tool if reset is during change
 
@@ -207,6 +209,11 @@ static void reset (void)
             memcpy(next_tool, &current_tool, sizeof(tool_data_t));
             system_add_rt_report(Report_Tool);
         }
+        char tool_msg[20];
+        sprintf(tool_msg, "Current tool: %lu", current_tool.tool_id);
+        RAPIDCHANGE_DEBUG_PRINT(tool_msg);
+        sprintf(tool_msg, "Next tool: %lu", next_tool->tool_id);
+        RAPIDCHANGE_DEBUG_PRINT(tool_msg);
 
         gc_state.tool_pending = gc_state.tool->tool_id;
         next_tool = NULL;
@@ -572,6 +579,11 @@ static void tool_select (tool_data_t *tool, bool next)
     next_tool = tool;
     if(!next)
         memcpy(&current_tool, tool, sizeof(tool_data_t));
+    char tool_msg[20];
+    sprintf(tool_msg, "Current tool: %lu", current_tool.tool_id);
+    RAPIDCHANGE_DEBUG_PRINT(tool_msg);
+    sprintf(tool_msg, "Next tool: %lu", next_tool->tool_id);
+    RAPIDCHANGE_DEBUG_PRINT(tool_msg);
 }
 
 // Start a tool change sequence. Called by gcode.c on a M6 command (via HAL).
