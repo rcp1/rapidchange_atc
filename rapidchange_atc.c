@@ -598,36 +598,41 @@ static status_code_t tool_change (parser_state_t *parser_state)
 
     message_start();
     protocol_buffer_synchronize();
+
+    RAPIDCHANGE_DEBUG_PRINT("Record program state.");
     record_program_state();
 
+    RAPIDCHANGE_DEBUG_PRINT("Set tool change state.");
     set_tool_change_state();
-    RAPIDCHANGE_DEBUG_PRINT("After set tool change state.");
 
+    RAPIDCHANGE_DEBUG_PRINT("Open dust cover.");
     open_dust_cover(true);
 
+    RAPIDCHANGE_DEBUG_PRINT("Unload tool.");
     ok = unload_tool();
     if(!ok)
         return Status_GCodeToolError;
-    RAPIDCHANGE_DEBUG_PRINT("After unload tool.");
 
+    RAPIDCHANGE_DEBUG_PRINT("Load tool.");
     ok = load_tool(next_tool->tool_id);
     if(!ok)
         return Status_GCodeToolError;
-    RAPIDCHANGE_DEBUG_PRINT("After load tool.");
 
+    RAPIDCHANGE_DEBUG_PRINT("Set tool length.");
     ok = set_tool();
     if(!ok)
         return Status_GCodeToolError;
-    RAPIDCHANGE_DEBUG_PRINT("After set tool.");
 
+    RAPIDCHANGE_DEBUG_PRINT("Close dust cover.");
     open_dust_cover(false);
 
+    RAPIDCHANGE_DEBUG_PRINT("Restore.");
     ok = restore_program_state();
     if(!ok)
         return Status_GCodeToolError;
 
     // change_completed();
-    RAPIDCHANGE_DEBUG_PRINT("Finished.");
+    RAPIDCHANGE_DEBUG_PRINT("Finished tool change.");
 
     return Status_OK;
 }
