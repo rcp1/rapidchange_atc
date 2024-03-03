@@ -43,6 +43,11 @@
 #define RAPIDCHANGE_DEBUG_PRINT(...)
 #endif
 
+
+static const char atc_tool_recognition_port_name[] = {
+    "RapidChange Tool Recognition"
+};
+
 typedef struct {
     char     alignment;
     char     direction;
@@ -68,6 +73,9 @@ typedef struct {
     float    tool_setter_max_travel;
     float    tool_setter_seek_retreat;
     bool     tool_recognition;
+    uint8_t  tool_recognition_port;
+    float    tool_recognition_z_zone_1;
+    float    tool_recognition_z_zone_2;
     bool     dust_cover;
 } atc_settings_t;
 
@@ -80,9 +88,27 @@ static driver_reset_ptr driver_reset = NULL;
 static on_report_options_ptr on_report_options;
 static coord_data_t target = {0}, previous;
 
+static uint8_t n_ports;
+static char max_port[4] = "0";
+
 static const setting_group_detail_t atc_groups [] = {
     { Group_Root, Group_UserSettings, "RapidChange ATC"}
 };
+
+static bool is_setting_available (const setting_detail_t *setting)
+{
+    bool available = false;
+
+    switch(setting->id) {
+        case 941:
+            available = atc.tool_recognition_port != 0xFF;;
+            break;
+        default:
+            break;
+    }
+
+    return available;
+}
 
 static const setting_detail_t atc_settings[] = {
     { 900, Group_UserSettings, "Alignment", "Axis", Format_RadioButtons, "X,Y", NULL, NULL, Setting_NonCore, &atc.alignment, NULL, NULL },
@@ -109,6 +135,9 @@ static const setting_detail_t atc_settings[] = {
     { 936, Group_UserSettings, "Tool Setter Max Travel", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_max_travel, NULL, NULL },
     { 937, Group_UserSettings, "Tool Setter Seek Retreat", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_seek_retreat, NULL, NULL },
     { 940, Group_UserSettings, "Tool Recognition", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_NonCore, &atc.tool_recognition, NULL, NULL },
+    { 941, Group_AuxPorts, "Tool Recognition Port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCore, &atc.tool_recognition_port, NULL, is_setting_available, { .reboot_required = On } },
+    { 942, Group_UserSettings, "Tool Recognition Z Zone 1", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_recognition_z_zone_1, NULL, NULL },
+    { 943, Group_UserSettings, "Tool Recognition Z Zone 2", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_recognition_z_zone_2, NULL, NULL },
     { 950, Group_UserSettings, "Dust Cover", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_NonCore, &atc.dust_cover, NULL, NULL },
 };
 
@@ -139,6 +168,9 @@ static const setting_descr_t atc_descriptions[] = {
     { 936, "Value: Distance (mm)\\n\\nThe maximum probing distance for tool setting." },
     { 937, "Value: Distance (mm)\\n\\nThe pull-off distance for the retract move before the slower locating phase." },
     { 940, "Value: Enabled or Disabled\\n\\nEnables or disables tool recognition as part of an automatic tool change. If tool recognition is included with your magazine, be sure to properly configure the appropriate settings before enabling." },
+    { 941, "Aux input port number to use for tool recognition IR sensor." },
+    { 942, "Value: Z Machine Coordinate (mm)\\n\\nThe Z position at which the clamping nut breaks the IR beam otherwise the nut is not loaded." },
+    { 943, "Value: Z Machine Coordinate (mm)\\n\\nThe Z position at which the clamping nut should not break the IR beam otherwise it is not properly threaded." },
     { 950, "Value: Enabled or Disabled\\n\\nEnables or disables the dust cover. If a dust cover is included with your magazine, be sure to properly configure the appropriate settings before enabling." },
 };
 
@@ -165,6 +197,12 @@ static void atc_settings_restore (void)
     atc.tool_setter_set_feed_rate = DEFAULT_TOOLCHANGE_FEED_RATE;
     atc.tool_setter_max_travel = DEFAULT_TOOLCHANGE_PROBING_DISTANCE;
     atc.tool_setter_seek_retreat = 2.0f;
+    atc.tool_recognition_z_zone_1 = -10.0f;
+    atc.tool_recognition_z_zone_2 = -10.0f;
+
+    if(n_ports) {
+        atc.tool_recognition_port = n_ports - 1;
+    }
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&atc, sizeof(atc_settings_t), true);
 }
@@ -180,6 +218,20 @@ static void atc_settings_load (void)
 {
     if(hal.nvs.memcpy_from_nvs((uint8_t *)&atc, nvs_address, sizeof(atc_settings_t), true) != NVS_TransferResult_OK)
         atc_settings_restore();
+
+    bool ok = true;
+
+    if(n_ports)  {
+        // Sanity check
+        if(atc.tool_recognition_port >= n_ports)
+            atc.tool_recognition_port = n_ports - 1;
+
+        if(!(ok = ioport_claim(Port_Digital, Port_Input, &atc.tool_recognition_port, atc_tool_recognition_port_name)))
+            atc.tool_recognition_port = 0xFE;
+    }
+
+    if(!ok)
+        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin: configured port number(s) not available");
 }
 
 static setting_details_t setting_details = {
@@ -339,6 +391,10 @@ static void spin_stop() {
     hal.delay_ms(atc.spindle_ramp_time, NULL);
 }
 
+bool spindle_has_tool() {
+    return hal.port.wait_on_input(Port_Digital, atc.tool_recognition_port, WaitMode_Immediate, 0.0f);
+}
+
 static void message_start() {
     char tool_msg[20];
     sprintf(tool_msg, "Current tool: %lu", current_tool.tool_id);
@@ -490,7 +546,32 @@ static bool load_tool(tool_id_t tool_id) {
 
         // If we're using tool recognition, let's handle it
         if(atc.tool_recognition) {
-            // TODO(rcp1) Handle tool recognition
+            if (!rapid_to_z(atc.tool_recognition_z_zone_1))
+                return false;
+            spin_stop();
+
+            // If we don't have a tool rise and pause for a manual load
+            if (!spindle_has_tool()) {
+                if(!rapid_to_z(atc.z_safe_clearance))
+                    return false;
+                RAPIDCHANGE_DEBUG_PRINT("FAILED TO LOAD THE SELECTED TOOL.");
+                RAPIDCHANGE_DEBUG_PRINT("PLEASE LOAD THE TOOL MANUALLY AND CYCLE START TO CONTINUE.");
+                pause();
+
+            // Otherwise we have a tool and can perform the next check
+            } else {
+                if (rapid_to_z(atc.tool_recognition_z_zone_2))
+                    return false;
+
+                // If we show to have a tool here, we cross-threaded and need to manually load
+                if (spindle_has_tool()) {
+                    if(!rapid_to_z(atc.z_safe_clearance))
+                        return false;
+                    RAPIDCHANGE_DEBUG_PRINT("FAILED TO PROPERLY THREAD THE SELECTED TOOL.");
+                    RAPIDCHANGE_DEBUG_PRINT("PLEASE RELOAD THE TOOL MANUALLY AND CYCLE START TO CONTINUE.");
+                    pause();
+                } // Otherwise all went well
+            }
         }
 
         if(!rapid_to_z(atc.z_traverse))
@@ -663,6 +744,22 @@ void atc_init (void)
 {
     protocol_enqueue_foreground_task(report_info, "RapidChange ATC plugin trying to initialize!");
     hal.driver_cap.atc = On;
+
+    atc.tool_recognition_port = 0xFF;
+    bool ok;
+    if(!ioport_can_claim_explicit()) {
+        if((ok = hal.port.num_digital_in >= 1)) {
+            hal.port.num_digital_in -= 1;
+            atc.tool_recognition_port = hal.port.num_digital_in;
+            if(hal.port.set_pin_description)
+                hal.port.set_pin_description(Port_Digital, Port_Input, atc.tool_recognition_port, atc_tool_recognition_port_name);
+        }
+    } else if((ok = (n_ports = ioports_available(Port_Digital, Port_Input)) >= 1))
+        strcpy(max_port, uitoa(n_ports - 1));
+    if(!ok) {
+        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin failed to initialize, unable to claim port for tool recognition!");
+        return;
+    }
 
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = report_options;
