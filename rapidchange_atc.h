@@ -40,8 +40,8 @@ static coord_data_t get_manual_pos (void);
 static coord_data_t get_tool_pos (tool_id_t tool_id);
 static bool tool_has_pocket (tool_id_t tool_id);
 
-static void spin_cw (float speed, int16_t delay);
-static void spin_ccw (float speed, int16_t delay);
+static void spin_cw (float speed);
+static void spin_ccw (float speed);
 static void spin_stop (void);
 static status_code_t rapid_to_pocket_xy (tool_id_t tool_id);
 static status_code_t rapid_to_z (float position);

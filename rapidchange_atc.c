@@ -399,7 +399,7 @@ static void unload_tool(void) {
         hal.delay_ms(500, NULL);
 
         rapid_to_z(atc.z_engage + atc.z_start);
-        spin_ccw(atc.unload_rpm, atc.spindle_ramp_time);
+        spin_ccw(atc.unload_rpm);
         linear_to_z(atc.z_engage, atc.engage_feed_rate);
 
         // If we're using tool recognition, handle it
@@ -423,24 +423,25 @@ static void unload_tool(void) {
     // current_tool.tool_id = 0;
 }
 
-static void spin_cw(float speed, int16_t delay) {
+static void spin_cw(float speed) {
     plan_line_data_t plan_data;
     plan_data_init(&plan_data);
     plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On}, speed);
-    hal.delay_ms(delay, NULL);
+    hal.delay_ms(atc.spindle_ramp_time, NULL);
 }
 
-static void spin_ccw(float speed, int16_t delay) {
+static void spin_ccw(float speed) {
     plan_line_data_t plan_data;
     plan_data_init(&plan_data);
     plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On, .ccw = On }, speed);
-    hal.delay_ms(delay, NULL);
+    hal.delay_ms(atc.spindle_ramp_time, NULL);
 }
 
 static void spin_stop() {
     plan_line_data_t plan_data;
     plan_data_init(&plan_data);
     plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){0}, 0.0f);
+    hal.delay_ms(atc.spindle_ramp_time, NULL);
 }
 
 static void load_tool(tool_id_t tool_id) {
@@ -454,7 +455,7 @@ static void load_tool(tool_id_t tool_id) {
     if (tool_has_pocket(tool_id)) {
         rapid_to_pocket_xy(tool_id);
         rapid_to_z(atc.z_engage + atc.z_start);
-        spin_cw(atc.load_rpm, atc.spindle_ramp_time);
+        spin_cw(atc.load_rpm);
         linear_to_z(atc.z_engage, atc.engage_feed_rate);
         rapid_to_z(atc.z_engage + atc.z_retract);
         linear_to_z(atc.z_engage, atc.engage_feed_rate);
