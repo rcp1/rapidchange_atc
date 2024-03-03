@@ -30,6 +30,15 @@
 
 #include "rapidchange_atc.h"
 
+#if RAPIDCHANGE_DEBUG
+#define RAPIDCHANGE_DEBUG_PRINT(message) \
+    hal.stream.write("[R-ATC]: "); \
+    hal.stream.write(message); \
+    hal.stream.write(ASCII_EOL);
+#else
+#define RAPIDCHANGE_DEBUG_PRINT(...)
+#endif
+
 typedef struct {
     char     alignment;
     char     direction;
@@ -132,19 +141,6 @@ static const setting_descr_t atc_descriptions[] = {
 #endif
 
 // Hal settings API
-// Write settings to non volatile storage (NVS).
-static void atc_settings_save (void)
-{
-    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&atc, sizeof(atc_settings_t), true);
-}
-
-// Load settings from volatile storage (NVS)
-static void atc_settings_load (void)
-{
-    if(hal.nvs.memcpy_from_nvs((uint8_t *)&atc, nvs_address, sizeof(atc_settings_t), true) != NVS_TransferResult_OK)
-        atc_settings_restore();
-}
-
 // Restore default settings and write to non volatile storage (NVS).
 static void atc_settings_restore (void)
 {
@@ -167,6 +163,19 @@ static void atc_settings_restore (void)
     atc.tool_setter_seek_retreat = 2.0f;
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&atc, sizeof(atc_settings_t), true);
+}
+
+// Write settings to non volatile storage (NVS).
+static void atc_settings_save (void)
+{
+    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&atc, sizeof(atc_settings_t), true);
+}
+
+// Load settings from volatile storage (NVS)
+static void atc_settings_load (void)
+{
+    if(hal.nvs.memcpy_from_nvs((uint8_t *)&atc, nvs_address, sizeof(atc_settings_t), true) != NVS_TransferResult_OK)
+        atc_settings_restore();
 }
 
 static setting_details_t setting_details = {
@@ -225,7 +234,7 @@ static coord_data_t calculate_tool_pos (tool_id_t tool_id) {
 
     if(atc.alignment == X_AXIS)
         target.x = atc.x_pocket_1 + tool_offset;
-    else if (atc.alignment == Y_AXIS)
+    else if(atc.alignment == Y_AXIS)
         target.y = atc.y_pocket_1 + tool_offset;
 
     return target;
@@ -240,15 +249,15 @@ static coord_data_t get_manual_pos (void) {
     return target;
 }
 
+static bool tool_has_pocket (tool_id_t tool_id) {
+    return tool_id != 0 && tool_id <= atc.number_of_pockets;
+}
+
 static coord_data_t get_tool_pos (tool_id_t tool_id) {
-    if (tool_has_pocket(tool_id)) {
+    if(tool_has_pocket(tool_id)) {
         return calculate_tool_pos(tool_id);
     } else
         return get_manual_pos();
-}
-
-static bool tool_has_pocket (tool_id_t tool_id) {
-    return tool_id != 0 && tool_id <= atc.number_of_pockets;
 }
 
 static bool rapid_to_tool_setter_xy() {
@@ -284,10 +293,7 @@ static bool rapid_to_z(float position) {
     if(!mc_line(target.values, &plan_data))
         return false;
 
-    debug_output("Before sync.", NULL, NULL);
-    bool t = protocol_buffer_synchronize();
-    debug_output("After sync.", NULL, NULL);
-    return t;
+    return protocol_buffer_synchronize();
 }
 
 static bool linear_to_z(float position, float feed_rate) {
@@ -301,18 +307,39 @@ static bool linear_to_z(float position, float feed_rate) {
     return protocol_buffer_synchronize();
 }
 
+static void spin_cw(float speed) {
+    plan_line_data_t plan_data;
+    plan_data_init(&plan_data);
+    plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On}, speed);
+    hal.delay_ms(atc.spindle_ramp_time, NULL);
+}
+
+static void spin_ccw(float speed) {
+    plan_line_data_t plan_data;
+    plan_data_init(&plan_data);
+    plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On, .ccw = On }, speed);
+    hal.delay_ms(atc.spindle_ramp_time, NULL);
+}
+
+static void spin_stop() {
+    plan_line_data_t plan_data;
+    plan_data_init(&plan_data);
+    plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){0}, 0.0f);
+    hal.delay_ms(atc.spindle_ramp_time, NULL);
+}
+
 static void message_start() {
     char tool_msg[20];
     sprintf(tool_msg, "Current tool: %lu", current_tool.tool_id);
-    debug_output(tool_msg, NULL, NULL);
-    if (next_tool) {
+    RAPIDCHANGE_DEBUG_PRINT(tool_msg);
+    if(next_tool) {
         sprintf(tool_msg, "Next tool: %lu", next_tool->tool_id);
-        debug_output(tool_msg, NULL, NULL);
+        RAPIDCHANGE_DEBUG_PRINT(tool_msg);
     }
 }
 
 static void open_dust_cover(bool open) {
-    if (!atc.dust_cover) {
+    if(!atc.dust_cover) {
         return;
     }
 
@@ -325,9 +352,9 @@ static void open_dust_cover(bool open) {
 
 void record_program_state() {
     // Spindle off and coolant off
-    debug_output("Turning off spindle", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("Turning off spindle");
     spindle_all_off();
-    debug_output("Turning off coolant", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("Turning off coolant");
     hal.coolant.set_state((coolant_state_t){0});
     // Save current position.
     system_convert_array_steps_to_mpos(previous.values, sys.position);
@@ -380,41 +407,41 @@ static void set_tool_change_state(void) {
 }
 
 static bool unload_tool(void) {
-    if (!rapid_to_z(atc.z_safe_clearance))
+    if(!rapid_to_z(atc.z_safe_clearance))
         return false;
 
-    // if we don't have a tool we're done
-    if (current_tool.tool_id == 0) {
+    // If we don't have a tool we're done
+    if(current_tool.tool_id == 0) {
         return true;
     }
 
     // If the tool has a pocket, unload
-    if (tool_has_pocket(current_tool.tool_id)) {
+    if(tool_has_pocket(current_tool.tool_id)) {
 
         // Perform first attempt
-        if (!rapid_to_pocket_xy(current_tool.tool_id))
+        if(!rapid_to_pocket_xy(current_tool.tool_id))
             return false;
 
-        if (!rapid_to_z(atc.z_engage + atc.z_start))
+        if(!rapid_to_z(atc.z_engage + atc.z_start))
             return false;
         spin_ccw(atc.unload_rpm);
-        if (!linear_to_z(atc.z_engage, atc.engage_feed_rate))
+        if(!linear_to_z(atc.z_engage, atc.engage_feed_rate))
             return false;
 
         // If we're using tool recognition, handle it
-        if (atc.tool_recognition) {
+        if(atc.tool_recognition) {
             // TODO(rcp1) Add tool recognition handling
         // If we're not using tool recognition, go straight to traverse height for loading
         } else {
-            if (!rapid_to_z(atc.z_traverse))
+            if(!rapid_to_z(atc.z_traverse))
                 return false;
             spin_stop();
         }
 
     // If the tool doesn't have a pocket, let's pause for manual removal
     } else {
-        debug_output("Current tool does not have an assigned pocket.", NULL, NULL);
-        debug_output("Please unload the tool manually and cycle start to continue.", NULL, NULL);
+        RAPIDCHANGE_DEBUG_PRINT("Current tool does not have an assigned pocket.");
+        RAPIDCHANGE_DEBUG_PRINT("Please unload the tool manually and cycle start to continue.");
         // TODO(rcp1) Pause M0
     }
 
@@ -424,63 +451,42 @@ static bool unload_tool(void) {
     return true;
 }
 
-static void spin_cw(float speed) {
-    plan_line_data_t plan_data;
-    plan_data_init(&plan_data);
-    plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On}, speed);
-    hal.delay_ms(atc.spindle_ramp_time, NULL);
-}
-
-static void spin_ccw(float speed) {
-    plan_line_data_t plan_data;
-    plan_data_init(&plan_data);
-    plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){ .on = On, .ccw = On }, speed);
-    hal.delay_ms(atc.spindle_ramp_time, NULL);
-}
-
-static void spin_stop() {
-    plan_line_data_t plan_data;
-    plan_data_init(&plan_data);
-    plan_data.spindle.hal->set_state(plan_data.spindle.hal, (spindle_state_t){0}, 0.0f);
-    hal.delay_ms(atc.spindle_ramp_time, NULL);
-}
-
 static bool load_tool(tool_id_t tool_id) {
 
     // If loading tool 0, we're done
-    if (tool_id == 0) {
+    if(tool_id == 0) {
         return true;
     }
 
     // If selected tool has a pocket, perform automatic pick up
-    if (tool_has_pocket(tool_id)) {
-        if (!rapid_to_pocket_xy(tool_id))
+    if(tool_has_pocket(tool_id)) {
+        if(!rapid_to_pocket_xy(tool_id))
             return false;
-        if (!rapid_to_z(atc.z_engage + atc.z_start))
+        if(!rapid_to_z(atc.z_engage + atc.z_start))
             return false;
         spin_cw(atc.load_rpm);
-        if (!linear_to_z(atc.z_engage, atc.engage_feed_rate))
+        if(!linear_to_z(atc.z_engage, atc.engage_feed_rate))
             return false;
-        if (!rapid_to_z(atc.z_engage + atc.z_retract))
+        if(!rapid_to_z(atc.z_engage + atc.z_retract))
             return false;
-        if (!linear_to_z(atc.z_engage, atc.engage_feed_rate))
+        if(!linear_to_z(atc.z_engage, atc.engage_feed_rate))
             return false;
 
         // If we're using tool recognition, let's handle it
-        if (atc.tool_recognition) {
+        if(atc.tool_recognition) {
             // TODO(rcp1) Handle tool recognition
         }
 
-        if (!rapid_to_z(atc.z_traverse))
+        if(!rapid_to_z(atc.z_traverse))
             return false;
         spin_stop();
 
     // Otherwise, there is no pocket so let's rise and pause to load manually
     } else {
-        if (!rapid_to_z(atc.z_safe_clearance))
+        if(!rapid_to_z(atc.z_safe_clearance))
             return false;
-        debug_output("Selected tool does not have an assigned pocket.", NULL, NULL);
-        debug_output("Please load the selected tool and press cycle start to continue.", NULL, NULL);
+        RAPIDCHANGE_DEBUG_PRINT("Selected tool does not have an assigned pocket.");
+        RAPIDCHANGE_DEBUG_PRINT("Please load the selected tool and press cycle start to continue.");
         // TODO(rcp1) Pause M0
     }
 
@@ -495,18 +501,18 @@ static bool load_tool(tool_id_t tool_id) {
 
 static bool set_tool (void) {
     // If the tool setter is disabled or if we don't have a tool, rise up and be done
-    if (!atc.tool_setter || current_tool.tool_id == 0) {
-        if (!rapid_to_z(atc.z_safe_clearance))
+    if(!atc.tool_setter || current_tool.tool_id == 0) {
+        if(!rapid_to_z(atc.z_safe_clearance))
             return false;
         return true;
     }
 
-    debug_output("Move to probe.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("Move to probe.");
     rapid_to_z(atc.z_safe_clearance);
     rapid_to_tool_setter_xy();
     rapid_to_z(atc.tool_setter_z_seek_start);
 
-    debug_output("Probe cycle.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("Probe cycle.");
     // Probe cycle using GCode interface since tool change interface is private
     plan_line_data_t plan_data;
     gc_parser_flags_t flags = {0};
@@ -530,7 +536,7 @@ static bool set_tool (void) {
     }
 
     if(ok) {
-        debug_output("Set TLO.", NULL, NULL);
+        RAPIDCHANGE_DEBUG_PRINT("Set TLO.");
         if(!(sys.tlo_reference_set.mask & bit(Z_AXIS))) {
             sys.tlo_reference[Z_AXIS] = sys.probe_position[Z_AXIS];
             sys.tlo_reference_set.mask |= bit(Z_AXIS);
@@ -544,12 +550,12 @@ static bool set_tool (void) {
         float pos[3];
         system_convert_array_steps_to_mpos(pos, sys.tlo_reference);
         sprintf(tlo_msg, "Current TLO: %3.2f", pos[Z_AXIS]);
-        debug_output(tlo_msg, NULL, NULL);
+        RAPIDCHANGE_DEBUG_PRINT(tlo_msg);
     }
 
-    debug_output("End of probing.", NULL, NULL);
-    if (ok)
-      if (!rapid_to_z(atc.z_safe_clearance))
+    RAPIDCHANGE_DEBUG_PRINT("End of probing.");
+    if(ok)
+      if(!rapid_to_z(atc.z_safe_clearance))
         return false;
 
     return ok;
@@ -559,7 +565,7 @@ static bool set_tool (void) {
 // Set next and/or current tool. Called by gcode.c on on a Tn or M61 command (via HAL).
 static void tool_select (tool_data_t *tool, bool next)
 {
-    debug_output("Tool select.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("Tool select.");
     next_tool = tool;
     if(!next)
         memcpy(&current_tool, tool, sizeof(tool_data_t));
@@ -569,21 +575,21 @@ static void tool_select (tool_data_t *tool, bool next)
 static status_code_t tool_change (parser_state_t *parser_state)
 {
     bool ok = true;
-    debug_output("Tool change.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("Tool change.");
     if(next_tool == NULL) {
-        debug_output("Next tool is not available!", NULL, NULL);
+        RAPIDCHANGE_DEBUG_PRINT("Next tool is not available!");
         return Status_GCodeToolError;
     }
 
     if(current_tool.tool_id == next_tool->tool_id) {
-        debug_output("Current tool selected, tool change bypassed.", NULL, NULL);
+        RAPIDCHANGE_DEBUG_PRINT("Current tool selected, tool change bypassed.");
         return Status_OK;
     }
 
     // Require homing
     uint8_t homed_req =  (X_AXIS_BIT|Y_AXIS_BIT|Z_AXIS_BIT);
     if((sys.homed.mask & homed_req) != homed_req) {
-        debug_output("Homing is required before tool change.", NULL, NULL);
+        RAPIDCHANGE_DEBUG_PRINT("Homing is required before tool change.");
         return Status_HomingRequired;
     }
 
@@ -592,33 +598,33 @@ static status_code_t tool_change (parser_state_t *parser_state)
     record_program_state();
 
     set_tool_change_state();
-    debug_output("After set tool change state.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("After set tool change state.");
 
     open_dust_cover(true);
 
     ok = unload_tool();
-    if (!ok)
+    if(!ok)
         return Status_GCodeToolError;
-    debug_output("After unload tool.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("After unload tool.");
 
     ok = load_tool(next_tool->tool_id);
-    if (!ok)
+    if(!ok)
         return Status_GCodeToolError;
-    debug_output("After load tool.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("After load tool.");
 
     ok = set_tool();
-    if (!ok)
+    if(!ok)
         return Status_GCodeToolError;
-    debug_output("After set tool.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("After set tool.");
 
     open_dust_cover(false);
 
     ok = restore_program_state();
-    if (!ok)
+    if(!ok)
         return Status_GCodeToolError;
 
     // change_completed();
-    debug_output("Finished.", NULL, NULL);
+    RAPIDCHANGE_DEBUG_PRINT("Finished.");
 
     return Status_OK;
 }
@@ -652,45 +658,4 @@ void atc_init (void)
         driver_reset = hal.driver_reset;
         hal.driver_reset = reset;
     }
-}
-
-void debug_output (char* message, coord_data_t *target, plan_line_data_t *pl_data) {
-
-#ifdef DEBUG
-    hal.stream.write("[R-ATC]: ");
-    hal.stream.write(message);
-    hal.stream.write(ASCII_EOL);
-
-    if(target != NULL) {
-        hal.stream.write(ASCII_EOL);
-        hal.stream.write("Target:" ASCII_EOL);
-        hal.stream.write("X: ");
-        hal.stream.write( ftoa(target->x, 3) );
-        hal.stream.write(ASCII_EOL);
-        hal.stream.write("y: ");
-        hal.stream.write( ftoa(target->y, 3) );
-        hal.stream.write(ASCII_EOL);
-        hal.stream.write("z: ");
-        hal.stream.write( ftoa(target->z, 3) );
-        hal.stream.write(ASCII_EOL);
-    }
-
-    if(pl_data != NULL) {
-        hal.stream.write(ASCII_EOL "Plan:" ASCII_EOL);
-        hal.stream.write("Feed Rate:");
-        hal.stream.write(ftoa(pl_data->feed_rate,3));
-        hal.stream.write(ASCII_EOL);
-        hal.stream.write("Spindle RPM:");
-        hal.stream.write(ftoa(pl_data->spindle.rpm,3));
-        hal.stream.write(ASCII_EOL);
-        hal.stream.write("Spindle State:");
-        char buffer[8U] = ""; /*the output buffer*/
-
-        sprintf (buffer, "%d", pl_data->spindle.state.value);
-        hal.stream.write(buffer);
-        hal.stream.write(ASCII_EOL);
-
-        hal.stream.write(ASCII_EOL);
-    }
-#endif
 }
