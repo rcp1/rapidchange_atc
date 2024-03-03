@@ -30,6 +30,9 @@
 
 #include "rapidchange_atc.h"
 
+// Used to print debug statements in the normal stream
+#define RAPIDCHANGE_DEBUG 1
+
 #if RAPIDCHANGE_DEBUG
 #define RAPIDCHANGE_DEBUG_PRINT(message) \
     hal.stream.write("[R-ATC]: "); \

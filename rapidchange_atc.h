@@ -22,9 +22,6 @@
 #ifndef _RAPIDCHANGE_ATC_H_
 #define _RAPIDCHANGE_ATC_H_
 
-// Used to print debug statements in the normal stream
-#define RAPIDCHANGE_DEBUG 1
-
 // HAL tool change API
 void atc_init (void);
 #endif
