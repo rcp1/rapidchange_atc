@@ -43,10 +43,15 @@
 #define RAPIDCHANGE_DEBUG_PRINT(...)
 #endif
 
-
-static const char atc_tool_recognition_port_name[] = {
-    "RapidChange Tool Recognition"
+static const char *atc_port_names[] = {
+    "RapidChange Tool Recognition",
+    "RapidChange Dust Cover"
 };
+
+typedef struct {
+    uint8_t tool_recognition;
+    uint8_t dust_cover;
+} atc_ports_t;
 
 typedef struct {
     char     alignment;
@@ -88,6 +93,7 @@ static driver_reset_ptr driver_reset = NULL;
 static on_report_options_ptr on_report_options;
 static coord_data_t target = {0}, previous;
 
+static atc_ports_t ports;
 static uint8_t n_ports;
 static char max_port[4] = "0";
 
@@ -101,7 +107,7 @@ static bool is_setting_available (const setting_detail_t *setting)
 
     switch(setting->id) {
         case 941:
-            available = atc.tool_recognition_port != 0xFF;;
+            available = ports.tool_recognition != 0xFF;
             break;
         default:
             break;
@@ -226,8 +232,9 @@ static void atc_settings_load (void)
         if(atc.tool_recognition_port >= n_ports)
             atc.tool_recognition_port = n_ports - 1;
 
-        if(!(ok = ioport_claim(Port_Digital, Port_Input, &atc.tool_recognition_port, atc_tool_recognition_port_name)))
-            atc.tool_recognition_port = 0xFE;
+        ports.tool_recognition = atc.tool_recognition_port;
+        if(!(ok = ioport_claim(Port_Digital, Port_Input, &ports.tool_recognition, atc_port_names[0])))
+           ports.tool_recognition = 0xFE;
     }
 
     if(!ok)
@@ -392,7 +399,7 @@ static void spin_stop() {
 }
 
 bool spindle_has_tool() {
-    return hal.port.wait_on_input(Port_Digital, atc.tool_recognition_port, WaitMode_Immediate, 0.0f);
+    return hal.port.wait_on_input(Port_Digital, ports.tool_recognition, WaitMode_Immediate, 0.0f) > 0;
 }
 
 static void message_start() {
@@ -502,7 +509,37 @@ static bool unload_tool(void) {
 
         // If we're using tool recognition, handle it
         if(atc.tool_recognition) {
-            // TODO(rcp1) Add tool recognition handling
+            RAPIDCHANGE_DEBUG_PRINT("Move to recognition zone 1.");
+            if(!rapid_to_z(atc.tool_recognition_z_zone_1))
+                return false;
+
+            // If we have a tool, try unloading one more time
+            if (spindle_has_tool()) {
+                RAPIDCHANGE_DEBUG_PRINT("Try to unload one more time.");
+                if(!rapid_to_z(atc.z_engage + atc.z_start))
+                    return false;
+                if(!linear_to_z(atc.z_engage, atc.engage_feed_rate))
+                    return false;
+                if(!rapid_to_z(atc.tool_recognition_z_zone_1))
+                    return false;
+            }
+
+            // Whether successful or not, we're done trying
+            spin_stop();
+
+            // If we have a tool at this point, rise and pause for manual unloading
+            if (spindle_has_tool()) {
+                if(!rapid_to_z(atc.z_safe_clearance))
+                    return false;
+                RAPIDCHANGE_DEBUG_PRINT("Failed to unload the current tool.");
+                RAPIDCHANGE_DEBUG_PRINT("Please unload the tool manually and cycle start to continue.");
+                pause();
+            // Otherwise, get ready to unload
+            } else {
+                if(!rapid_to_z(atc.z_traverse))
+                    return false;
+            }
+
         // If we're not using tool recognition, go straight to traverse height for loading
         } else {
             if(!rapid_to_z(atc.z_traverse))
@@ -546,6 +583,7 @@ static bool load_tool(tool_id_t tool_id) {
 
         // If we're using tool recognition, let's handle it
         if(atc.tool_recognition) {
+            RAPIDCHANGE_DEBUG_PRINT("Move to recognition zone 1.");
             if (!rapid_to_z(atc.tool_recognition_z_zone_1))
                 return false;
             spin_stop();
@@ -554,29 +592,31 @@ static bool load_tool(tool_id_t tool_id) {
             if (!spindle_has_tool()) {
                 if(!rapid_to_z(atc.z_safe_clearance))
                     return false;
-                RAPIDCHANGE_DEBUG_PRINT("FAILED TO LOAD THE SELECTED TOOL.");
-                RAPIDCHANGE_DEBUG_PRINT("PLEASE LOAD THE TOOL MANUALLY AND CYCLE START TO CONTINUE.");
+                RAPIDCHANGE_DEBUG_PRINT("Failed to load the selected tool.");
+                RAPIDCHANGE_DEBUG_PRINT("Please load the tool manually and cycle start to continue.");
                 pause();
 
             // Otherwise we have a tool and can perform the next check
             } else {
-                if (rapid_to_z(atc.tool_recognition_z_zone_2))
+                RAPIDCHANGE_DEBUG_PRINT("Move to recognition zone 2.");
+                if (!rapid_to_z(atc.tool_recognition_z_zone_2))
                     return false;
-
                 // If we show to have a tool here, we cross-threaded and need to manually load
                 if (spindle_has_tool()) {
                     if(!rapid_to_z(atc.z_safe_clearance))
                         return false;
-                    RAPIDCHANGE_DEBUG_PRINT("FAILED TO PROPERLY THREAD THE SELECTED TOOL.");
-                    RAPIDCHANGE_DEBUG_PRINT("PLEASE RELOAD THE TOOL MANUALLY AND CYCLE START TO CONTINUE.");
+                    RAPIDCHANGE_DEBUG_PRINT("Failed to properly thread the selected tool.");
+                    RAPIDCHANGE_DEBUG_PRINT("Please reload the tool manually and cycle start to continue.");
                     pause();
                 } // Otherwise all went well
+                RAPIDCHANGE_DEBUG_PRINT("Tool recognized.");
             }
+        } else {
+            if(!rapid_to_z(atc.z_traverse))
+                return false;
+            spin_stop();
         }
 
-        if(!rapid_to_z(atc.z_traverse))
-            return false;
-        spin_stop();
 
     // Otherwise, there is no pocket so let's rise and pause to load manually
     } else {
@@ -745,17 +785,19 @@ void atc_init (void)
     protocol_enqueue_foreground_task(report_info, "RapidChange ATC plugin trying to initialize!");
     hal.driver_cap.atc = On;
 
-    atc.tool_recognition_port = 0xFF;
+    ports.tool_recognition = 0xFF;
+    ports.dust_cover = 0xFF;
     bool ok;
     if(!ioport_can_claim_explicit()) {
         if((ok = hal.port.num_digital_in >= 1)) {
             hal.port.num_digital_in -= 1;
-            atc.tool_recognition_port = hal.port.num_digital_in;
+            ports.tool_recognition = hal.port.num_digital_in;
             if(hal.port.set_pin_description)
-                hal.port.set_pin_description(Port_Digital, Port_Input, atc.tool_recognition_port, atc_tool_recognition_port_name);
+                hal.port.set_pin_description(Port_Digital, Port_Input, ports.tool_recognition, atc_port_names[0]);
         }
     } else if((ok = (n_ports = ioports_available(Port_Digital, Port_Input)) >= 1))
         strcpy(max_port, uitoa(n_ports - 1));
+
     if(!ok) {
         protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin failed to initialize, unable to claim port for tool recognition!");
         return;
