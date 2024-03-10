@@ -336,7 +336,7 @@ static void atc_settings_load (void)
     }
 
     if(!ok)
-        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin: Configured port number(s) not available");
+        protocol_enqueue_foreground_task(report_warning, "RapidChange: Configured port number(s) not available");
 }
 
 static setting_details_t setting_details = {
@@ -648,8 +648,7 @@ static bool unload_tool(void) {
             if (spindle_has_tool()) {
                 if(!rapid_to_z(atc.z_safe_clearance))
                     return false;
-                RAPIDCHANGE_DEBUG_PRINT("Failed to unload the current tool.");
-                RAPIDCHANGE_DEBUG_PRINT("Please unload the tool manually and cycle start to continue.");
+                protocol_enqueue_foreground_task(report_warning, "RapidChange: Failed to unload the current tool. Please unload the tool manually and cycle start to continue.");
                 pause();
             // Otherwise, get ready to unload
             } else {
@@ -666,8 +665,7 @@ static bool unload_tool(void) {
 
     // If the tool doesn't have a pocket, let's pause for manual removal
     } else {
-        RAPIDCHANGE_DEBUG_PRINT("Current tool does not have an assigned pocket.");
-        RAPIDCHANGE_DEBUG_PRINT("Please unload the tool manually and cycle start to continue.");
+        protocol_enqueue_foreground_task(report_warning, "RapidChange: Current tool does not have an assigned pocket. Please unload the tool manually and cycle start to continue.");
         pause();
     }
 
@@ -709,8 +707,7 @@ static bool load_tool(tool_id_t tool_id) {
             if (!spindle_has_tool()) {
                 if(!rapid_to_z(atc.z_safe_clearance))
                     return false;
-                RAPIDCHANGE_DEBUG_PRINT("Failed to load the selected tool.");
-                RAPIDCHANGE_DEBUG_PRINT("Please load the tool manually and cycle start to continue.");
+                protocol_enqueue_foreground_task(report_warning, "RapidChange: Failed to load the selected tool. Please load the tool manually and cycle start to continue.");
                 pause();
 
             // Otherwise we have a tool and can perform the next check
@@ -722,8 +719,8 @@ static bool load_tool(tool_id_t tool_id) {
                 if (spindle_has_tool()) {
                     if(!rapid_to_z(atc.z_safe_clearance))
                         return false;
-                    RAPIDCHANGE_DEBUG_PRINT("Failed to properly thread the selected tool.");
-                    RAPIDCHANGE_DEBUG_PRINT("Please reload the tool manually and cycle start to continue.");
+
+                    protocol_enqueue_foreground_task(report_warning, "RapidChange: Failed to properly thread the selected tool. Please reload the tool manually and cycle start to continue.");
                     pause();
                 } // Otherwise all went well
                 RAPIDCHANGE_DEBUG_PRINT("Tool recognized.");
@@ -929,7 +926,7 @@ void atc_init (void)
     }
 
     if(!ok) {
-        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin failed to initialize, unable to claim port for tool recognition or dust cover!");
+        protocol_enqueue_foreground_task(report_warning, "RapidChange: Failed to initialize, unable to claim port for tool recognition or dust cover!");
         return;
     }
 
@@ -951,7 +948,7 @@ void atc_init (void)
     if((nvs_address = nvs_alloc(sizeof(atc_settings_t)))) {
          settings_register(&setting_details);
     } else {
-        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin failed to initialize, no NVS storage for settings!");
+        protocol_enqueue_foreground_task(report_warning, "RapidChange: Failed to initialize, no NVS storage for settings!");
     }
 
     if(driver_reset == NULL) {
