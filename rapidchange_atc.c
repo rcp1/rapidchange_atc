@@ -53,6 +53,12 @@ typedef struct {
     uint8_t dust_cover;
 } atc_ports_t;
 
+typedef enum {
+    DustCover_Disabled = 0,
+    DustCover_UseAxis,
+    DustCover_UsePort
+} dust_cover_mode_t;
+
 typedef struct {
     char     alignment;
     char     direction;
@@ -81,7 +87,11 @@ typedef struct {
     uint8_t  tool_recognition_port;
     float    tool_recognition_z_zone_1;
     float    tool_recognition_z_zone_2;
-    bool     dust_cover;
+    dust_cover_mode_t dust_cover;
+    uint8_t  dust_cover_axis;
+    float    dust_cover_axis_open;
+    float    dust_cover_axis_close;
+    uint8_t  dust_cover_port;
 } atc_settings_t;
 
 static volatile bool execute_posted = false;
@@ -94,21 +104,81 @@ static on_report_options_ptr on_report_options;
 static coord_data_t target = {0}, previous;
 
 static atc_ports_t ports;
-static uint8_t n_ports;
-static char max_port[4] = "0";
+static uint8_t n_in_ports;
+static uint8_t n_out_ports;
+static char max_in_port[4] = "0";
+static char max_out_port[4] = "0";
 
 static const setting_group_detail_t atc_groups [] = {
     { Group_Root, Group_UserSettings, "RapidChange ATC"}
 };
+
+static uint32_t atc_get_int (setting_id_t id)
+{
+    uint32_t value = 0;
+    switch(id) {
+        case 950:
+            value = atc.dust_cover;
+            break;
+        case 951:
+            value = bit(atc.dust_cover_axis);
+            break;
+        default:
+            break;
+    }
+
+    return value;
+}
+
+static status_code_t set_dust_cover_mode (setting_id_t id, uint_fast16_t int_value)
+{
+    if(int_value <= DustCover_UsePort) {
+        atc.dust_cover = (dust_cover_mode_t)int_value;
+    } else
+        return Status_InvalidStatement;
+
+    return Status_OK;
+}
+
+static status_code_t set_dust_cover_axis_mask (setting_id_t id, uint_fast16_t int_value)
+{
+    // Allow only one bit / axis set
+    if (!(int_value && !(int_value & (int_value-1))))
+        return Status_InvalidStatement;
+
+    atc.dust_cover_axis = log2(int_value);
+
+    return Status_OK;
+}
 
 static bool is_setting_available (const setting_detail_t *setting)
 {
     bool available = false;
 
     switch(setting->id) {
-        case 941:
-            available = ports.tool_recognition != 0xFF;
+        case 931:
+        case 932:
+        case 933:
+        case 934:
+        case 935:
+        case 936:
+        case 937:
+            available = atc.tool_setter;
             break;
+        case 941:
+            available = atc.tool_recognition && ports.tool_recognition != 0xFF;
+            break;
+        case 942:
+        case 943:
+            available = atc.tool_recognition;
+            break;
+        case 951:
+        case 952:
+        case 953:
+            available = atc.dust_cover == DustCover_UseAxis;
+            break;
+        case 955:
+            available = atc.dust_cover == DustCover_UsePort && ports.dust_cover != 0xFF;
         default:
             break;
     }
@@ -133,18 +203,22 @@ static const setting_detail_t atc_settings[] = {
     { 922, Group_UserSettings, "Pocket Unload Spindle RPM", "rpm", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.unload_rpm, NULL, NULL },
     { 923, Group_UserSettings, "Spindle Ramp-up Wait Time", "ms", Format_Int16, "###0", "0", "60000", Setting_NonCore, &atc.spindle_ramp_time, NULL, NULL },
     { 930, Group_UserSettings, "Tool Setter", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_NonCore, &atc.tool_setter, NULL, NULL },
-    { 931, Group_UserSettings, "Tool Setter X Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_x, NULL, NULL },
-    { 932, Group_UserSettings, "Tool Setter Y Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_y, NULL, NULL },
-    { 933, Group_UserSettings, "Tool Setter Z Seek Start", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_z_seek_start, NULL, NULL },
-    { 934, Group_UserSettings, "Tool Setter Seek Feed Rate", "mm/min", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.tool_setter_seek_feed_rate, NULL, NULL },
-    { 935, Group_UserSettings, "Tool Setter Set Feed Rate", "mm/min", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.tool_setter_set_feed_rate, NULL, NULL },
-    { 936, Group_UserSettings, "Tool Setter Max Travel", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_max_travel, NULL, NULL },
-    { 937, Group_UserSettings, "Tool Setter Seek Retreat", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_seek_retreat, NULL, NULL },
+    { 931, Group_UserSettings, "Tool Setter X Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_x, NULL, is_setting_available },
+    { 932, Group_UserSettings, "Tool Setter Y Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_y, NULL, is_setting_available },
+    { 933, Group_UserSettings, "Tool Setter Z Seek Start", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_z_seek_start, NULL, is_setting_available },
+    { 934, Group_UserSettings, "Tool Setter Seek Feed Rate", "mm/min", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.tool_setter_seek_feed_rate, NULL, is_setting_available },
+    { 935, Group_UserSettings, "Tool Setter Set Feed Rate", "mm/min", Format_Decimal, "###0", "0", "10000", Setting_NonCore, &atc.tool_setter_set_feed_rate, NULL, is_setting_available },
+    { 936, Group_UserSettings, "Tool Setter Max Travel", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_max_travel, NULL, is_setting_available },
+    { 937, Group_UserSettings, "Tool Setter Seek Retreat", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_setter_seek_retreat, NULL, is_setting_available },
     { 940, Group_UserSettings, "Tool Recognition", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_NonCore, &atc.tool_recognition, NULL, NULL },
-    { 941, Group_AuxPorts, "Tool Recognition Port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCore, &atc.tool_recognition_port, NULL, is_setting_available, { .reboot_required = On } },
-    { 942, Group_UserSettings, "Tool Recognition Z Zone 1", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_recognition_z_zone_1, NULL, NULL },
-    { 943, Group_UserSettings, "Tool Recognition Z Zone 2", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_recognition_z_zone_2, NULL, NULL },
-    { 950, Group_UserSettings, "Dust Cover", NULL, Format_RadioButtons, "Disabled, Enabled", NULL, NULL, Setting_NonCore, &atc.dust_cover, NULL, NULL },
+    { 941, Group_AuxPorts, "Tool Recognition Port", NULL, Format_Int8, "#0", "0", max_in_port, Setting_NonCore, &atc.tool_recognition_port, NULL, is_setting_available, { .reboot_required = On } },
+    { 942, Group_UserSettings, "Tool Recognition Z Zone 1", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_recognition_z_zone_1, NULL, is_setting_available },
+    { 943, Group_UserSettings, "Tool Recognition Z Zone 2", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_recognition_z_zone_2, NULL, is_setting_available },
+    { 950, Group_UserSettings, "Dust Cover", NULL, Format_RadioButtons, "Disabled, Port, Axis", NULL, NULL, Setting_NonCoreFn, set_dust_cover_mode, atc_get_int, NULL },
+    { 951, Group_UserSettings, "Dust Cover Axis", NULL, Format_AxisMask, NULL, NULL, NULL, Setting_NonCoreFn, set_dust_cover_axis_mask, atc_get_int, is_setting_available },
+    { 952, Group_UserSettings, "Dust Cover Axis Open Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.dust_cover_axis_open, NULL, is_setting_available },
+    { 953, Group_UserSettings, "Dust Cover Axis Close Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.dust_cover_axis_close, NULL, is_setting_available },
+    { 955, Group_AuxPorts, "Dust Cover Port", NULL, Format_Int8, "#0", "0", max_out_port, Setting_NonCore, &atc.dust_cover_port, NULL, is_setting_available, { .reboot_required = On } },
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -177,7 +251,13 @@ static const setting_descr_t atc_descriptions[] = {
     { 941, "Aux input port number to use for tool recognition IR sensor." },
     { 942, "Value: Z Machine Coordinate (mm)\\n\\nThe Z position at which the clamping nut breaks the IR beam otherwise the nut is not loaded." },
     { 943, "Value: Z Machine Coordinate (mm)\\n\\nThe Z position at which the clamping nut should not break the IR beam otherwise it is not properly threaded." },
-    { 950, "Value: Enabled or Disabled\\n\\nEnables or disables the dust cover. If a dust cover is included with your magazine, be sure to properly configure the appropriate settings before enabling." },
+    { 950, "Disabled: Dust cover is disabled. \\n\\n"
+           "Axis: Use axis to open and close dust cover.\\n\\n"
+           "Port: Open and close dust cover via output port.\\n\\n" },
+    { 951, "Value: Axis\\n\\nThe axis which controls the dust cover." },
+    { 952, "Value: Dust Cover Axis Machine Coordinate (mm)\\n\\nThe dust cover axis position referencing an open dust cover." },
+    { 953, "Value: Dust Cover Axis Machine Coordinate (mm)\\n\\nThe dust cover axis position referencing a closed dust cover." },
+    { 955, "Aux output port number to use for dust cover control (High is open, low is close)." },
 };
 
 #endif
@@ -198,16 +278,25 @@ static void atc_settings_restore (void)
     atc.engage_feed_rate = 1800.0f;
     atc.load_rpm = 1200.0f;
     atc.unload_rpm = 1200.0f;
+
     atc.tool_setter_z_seek_start = -10.0f;
     atc.tool_setter_seek_feed_rate = DEFAULT_TOOLCHANGE_SEEK_RATE;
     atc.tool_setter_set_feed_rate = DEFAULT_TOOLCHANGE_FEED_RATE;
     atc.tool_setter_max_travel = DEFAULT_TOOLCHANGE_PROBING_DISTANCE;
     atc.tool_setter_seek_retreat = 2.0f;
+
+    if(n_in_ports) {
+        atc.tool_recognition_port = n_in_ports - 1;
+    }
     atc.tool_recognition_z_zone_1 = -10.0f;
     atc.tool_recognition_z_zone_2 = -10.0f;
 
-    if(n_ports) {
-        atc.tool_recognition_port = n_ports - 1;
+    atc.dust_cover = DustCover_Disabled;
+    atc.dust_cover_axis = N_AXIS - 1;
+    atc.dust_cover_axis_open = -10.0f;
+    atc.dust_cover_axis_close = -10.0f;
+    if(n_out_ports) {
+        atc.dust_cover_port = n_out_ports - 1;
     }
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&atc, sizeof(atc_settings_t), true);
@@ -227,18 +316,27 @@ static void atc_settings_load (void)
 
     bool ok = true;
 
-    if(n_ports)  {
+    ports.tool_recognition = 0xFE;
+    ports.dust_cover = 0xFE;
+    if(n_in_ports)  {
         // Sanity check
-        if(atc.tool_recognition_port >= n_ports)
-            atc.tool_recognition_port = n_ports - 1;
+        if(atc.tool_recognition_port >= n_in_ports)
+            atc.tool_recognition_port = n_in_ports - 1;
 
         ports.tool_recognition = atc.tool_recognition_port;
-        if(!(ok = ioport_claim(Port_Digital, Port_Input, &ports.tool_recognition, atc_port_names[0])))
-           ports.tool_recognition = 0xFE;
+        ok = ioport_claim(Port_Digital, Port_Input, &ports.tool_recognition, atc_port_names[0]);
+    }
+    if(ok && n_out_ports)  {
+        // Sanity check
+        if(atc.dust_cover_port >= n_out_ports)
+            atc.dust_cover_port = n_out_ports - 1;
+
+        ports.dust_cover = atc.dust_cover_port;
+        ok = ioport_claim(Port_Digital, Port_Output, &ports.dust_cover, atc_port_names[1]);
     }
 
     if(!ok)
-        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin: configured port number(s) not available");
+        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin: Configured port number(s) not available");
 }
 
 static setting_details_t setting_details = {
@@ -412,16 +510,35 @@ static void message_start() {
     }
 }
 
-static void open_dust_cover(bool open) {
-    if(!atc.dust_cover) {
-        return;
+static bool open_dust_cover_axis(bool open) {
+    plan_line_data_t plan_data;
+    plan_data_init(&plan_data);
+    plan_data.condition.rapid_motion = On;
+    target.values[atc.dust_cover_axis] = open ? atc.dust_cover_axis_open : atc.dust_cover_axis_open;
+    if(!mc_line(target.values, &plan_data))
+        return false;
+
+    return protocol_buffer_synchronize();
+}
+
+
+static void open_dust_cover_output(bool open) {
+    hal.port.digital_out(ports.dust_cover, open);
+    // Wait till motion completed
+    hal.delay_ms(1000, NULL);
+}
+
+static bool open_dust_cover(bool open) {
+    if(atc.dust_cover == DustCover_Disabled) {
+        return true;
     }
 
-    // TODO(rcp1) Open dust cover
-
-    // hal.delay_ms(500, NULL);
-
-    return;
+    if(atc.dust_cover == DustCover_UsePort) {
+        open_dust_cover_output(open);
+        return true;
+    } else {
+        return open_dust_cover_axis(open);
+    }
 }
 
 void record_program_state() {
@@ -748,7 +865,9 @@ static status_code_t tool_change (parser_state_t *parser_state)
     set_tool_change_state();
 
     RAPIDCHANGE_DEBUG_PRINT("Open dust cover.");
-    open_dust_cover(true);
+    ok = open_dust_cover(true);
+    if(!ok)
+        return Status_GCodeToolError;
 
     RAPIDCHANGE_DEBUG_PRINT("Unload tool.");
     ok = unload_tool();
@@ -766,7 +885,9 @@ static status_code_t tool_change (parser_state_t *parser_state)
         return Status_GCodeToolError;
 
     RAPIDCHANGE_DEBUG_PRINT("Close dust cover.");
-    open_dust_cover(false);
+    ok = open_dust_cover(false);
+    if(!ok)
+        return Status_GCodeToolError;
 
     RAPIDCHANGE_DEBUG_PRINT("Restore.");
     ok = restore_program_state();
@@ -783,7 +904,6 @@ static status_code_t tool_change (parser_state_t *parser_state)
 void atc_init (void)
 {
     protocol_enqueue_foreground_task(report_info, "RapidChange ATC plugin trying to initialize!");
-    hal.driver_cap.atc = On;
 
     ports.tool_recognition = 0xFF;
     ports.dust_cover = 0xFF;
@@ -795,13 +915,25 @@ void atc_init (void)
             if(hal.port.set_pin_description)
                 hal.port.set_pin_description(Port_Digital, Port_Input, ports.tool_recognition, atc_port_names[0]);
         }
-    } else if((ok = (n_ports = ioports_available(Port_Digital, Port_Input)) >= 1))
-        strcpy(max_port, uitoa(n_ports - 1));
+        if((ok = ok && hal.port.num_digital_out >= 1)) {
+            hal.port.num_digital_out -= 1;
+            ports.dust_cover = hal.port.num_digital_out;
+            if(hal.port.set_pin_description)
+                hal.port.set_pin_description(Port_Digital, Port_Output, ports.dust_cover, atc_port_names[1]);
+        }
+    } else {
+        if((ok = (n_in_ports = ioports_available(Port_Digital, Port_Input)) >= 1))
+            strcpy(max_in_port, uitoa(n_in_ports - 1));
+        if((ok = ok && (n_out_ports = ioports_available(Port_Digital, Port_Output)) >= 1))
+            strcpy(max_out_port, uitoa(n_out_ports - 1));
+    }
 
     if(!ok) {
-        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin failed to initialize, unable to claim port for tool recognition!");
+        protocol_enqueue_foreground_task(report_warning, "RapidChange ATC plugin failed to initialize, unable to claim port for tool recognition or dust cover!");
         return;
     }
+
+    hal.driver_cap.atc = On;
 
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = report_options;
