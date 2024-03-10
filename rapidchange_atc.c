@@ -214,7 +214,7 @@ static const setting_detail_t atc_settings[] = {
     { 941, Group_AuxPorts, "Tool Recognition Port", NULL, Format_Int8, "#0", "0", max_in_port, Setting_NonCore, &atc.tool_recognition_port, NULL, is_setting_available, { .reboot_required = On } },
     { 942, Group_UserSettings, "Tool Recognition Z Zone 1", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_recognition_z_zone_1, NULL, is_setting_available },
     { 943, Group_UserSettings, "Tool Recognition Z Zone 2", "mm", Format_Decimal, "-##0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.tool_recognition_z_zone_2, NULL, is_setting_available },
-    { 950, Group_UserSettings, "Dust Cover", NULL, Format_RadioButtons, "Disabled, Port, Axis", NULL, NULL, Setting_NonCoreFn, set_dust_cover_mode, atc_get_int, NULL },
+    { 950, Group_UserSettings, "Dust Cover", NULL, Format_RadioButtons, "Disabled, Axis, Port", NULL, NULL, Setting_NonCoreFn, set_dust_cover_mode, atc_get_int, NULL },
     { 951, Group_UserSettings, "Dust Cover Axis", NULL, Format_AxisMask, NULL, NULL, NULL, Setting_NonCoreFn, set_dust_cover_axis_mask, atc_get_int, is_setting_available },
     { 952, Group_UserSettings, "Dust Cover Axis Open Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.dust_cover_axis_open, NULL, is_setting_available },
     { 953, Group_UserSettings, "Dust Cover Axis Close Position", "mm", Format_Decimal, "-###0.000", "-9999.999", "9999.999", Setting_NonCore, &atc.dust_cover_axis_close, NULL, is_setting_available },
