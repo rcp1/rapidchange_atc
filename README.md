@@ -1,6 +1,8 @@
 # rapidchange_atc
 
-[RapidChange](https://rapidchangeatc.com/) automatic tool change plugin for grblHal.
+[RapidChange](https://rapidchangeatc.com/) automatic tool change plugin for [grblHal](https://www.grbl.org/what-is-grblhal) based on the [RapidChange FluidNC version](https://github.com/greilick-industries/FluidNC-RapidChangeATC).
+
+This plugin is not associated with Greilick Industries LLC.
 
 > :warning: **Usage at your own risk, was only roughly tested on my machine**
 
@@ -12,8 +14,8 @@
 - [x] Error handling
 - [x] Tool setter
 - [ ] Ensuring that tool is not forgotten on errors / resets
-- [ ] Tool recognition
-- [ ] Dust cover
+- [x] Tool recognition
+- [x] Dust cover
 
 ## Usage
 
