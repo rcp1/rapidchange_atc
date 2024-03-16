@@ -472,7 +472,8 @@ static bool linear_to_z(float position, float feed_rate) {
     if(!mc_line(target.values, &plan_data))
         return false;
 
-    return protocol_buffer_synchronize();
+    // Do not execute (buffer sync) to not introduce delay
+    return true;
 }
 
 static void spin_cw(float speed) {
