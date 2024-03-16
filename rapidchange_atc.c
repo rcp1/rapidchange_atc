@@ -858,7 +858,7 @@ static void tool_select (tool_data_t *tool, bool next)
 static status_code_t tool_change (parser_state_t *parser_state)
 {
     bool ok = true;
-    RAPIDCHANGE_DEBUG_PRINT("Tool change.");
+    RAPIDCHANGE_DEBUG_PRINT("Tool change start.");
     if(next_tool == NULL) {
         RAPIDCHANGE_DEBUG_PRINT("Next tool is not available!");
         return Status_GCodeToolError;
@@ -906,8 +906,7 @@ static status_code_t tool_change (parser_state_t *parser_state)
     if(!ok)
         return Status_GCodeToolError;
 
-    // change_completed();
-    RAPIDCHANGE_DEBUG_PRINT("Finished tool change.");
+    RAPIDCHANGE_DEBUG_PRINT("Tool change finished.");
 
     return Status_OK;
 }

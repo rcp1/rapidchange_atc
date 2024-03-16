@@ -20,4 +20,10 @@ This plugin is not associated with Greilick Industries LLC.
 
 ## Usage
 
-Add this repository as submodule to your grblHal driver checkout and re-compile.
+Add this repository as submodule to your grblHal driver checkout, define `ATC_ENABLE` in your my_machine.h and re-compile.
+
+So your my_machine.h needs to contain:
+
+```c
+#define ATC_ENABLE                1
+```
