@@ -530,6 +530,7 @@ static void open_dust_cover_output(bool open) {
 }
 
 static bool open_dust_cover(bool open) {
+    RAPIDCHANGE_DEBUG_PRINT("Open / close dust cover.");
     if(atc.dust_cover == DustCover_Disabled) {
         return true;
     }
@@ -543,6 +544,7 @@ static bool open_dust_cover(bool open) {
 }
 
 void record_program_state() {
+    RAPIDCHANGE_DEBUG_PRINT("Record program state.");
     // Spindle off and coolant off
     RAPIDCHANGE_DEBUG_PRINT("Turning off spindle");
     spindle_all_off();
@@ -557,6 +559,7 @@ void record_program_state() {
 }
 
 static bool restore_program_state (void) {
+    RAPIDCHANGE_DEBUG_PRINT("Restore.");
     plan_line_data_t plan_data;
 
     plan_data_init(&plan_data);
@@ -594,6 +597,7 @@ static bool restore_program_state (void) {
 }
 
 static void set_tool_change_state(void) {
+    RAPIDCHANGE_DEBUG_PRINT("Set tool change state.");
     protocol_buffer_synchronize();
     sync_position();
 }
@@ -611,6 +615,8 @@ static bool unload_tool(void) {
     if(current_tool.tool_id == 0) {
         return true;
     }
+
+    RAPIDCHANGE_DEBUG_PRINT("Unload tool.");
 
     // If the tool has a pocket, unload
     if(tool_has_pocket(current_tool.tool_id)) {
@@ -677,11 +683,12 @@ static bool unload_tool(void) {
 }
 
 static bool load_tool(tool_id_t tool_id) {
-
     // If loading tool 0, we're done
     if(tool_id == 0) {
         return true;
     }
+
+    RAPIDCHANGE_DEBUG_PRINT("Load tool.");
 
     // If selected tool has a pocket, perform automatic pick up
     if(tool_has_pocket(tool_id)) {
@@ -758,6 +765,7 @@ static bool set_tool (void) {
             return false;
         return true;
     }
+    RAPIDCHANGE_DEBUG_PRINT("Set tool length.");
 
     RAPIDCHANGE_DEBUG_PRINT("Move to probe.");
     if(!rapid_to_z(atc.z_safe_clearance))
@@ -856,38 +864,29 @@ static status_code_t tool_change (parser_state_t *parser_state)
     message_start();
     protocol_buffer_synchronize();
 
-    RAPIDCHANGE_DEBUG_PRINT("Record program state.");
     record_program_state();
-
-    RAPIDCHANGE_DEBUG_PRINT("Set tool change state.");
     set_tool_change_state();
 
-    RAPIDCHANGE_DEBUG_PRINT("Open dust cover.");
     ok = open_dust_cover(true);
     if(!ok)
         return Status_GCodeToolError;
 
-    RAPIDCHANGE_DEBUG_PRINT("Unload tool.");
     ok = unload_tool();
     if(!ok)
         return Status_GCodeToolError;
 
-    RAPIDCHANGE_DEBUG_PRINT("Load tool.");
     ok = load_tool(next_tool->tool_id);
     if(!ok)
         return Status_GCodeToolError;
 
-    RAPIDCHANGE_DEBUG_PRINT("Set tool length.");
     ok = set_tool();
     if(!ok)
         return Status_GCodeToolError;
 
-    RAPIDCHANGE_DEBUG_PRINT("Close dust cover.");
     ok = open_dust_cover(false);
     if(!ok)
         return Status_GCodeToolError;
 
-    RAPIDCHANGE_DEBUG_PRINT("Restore.");
     ok = restore_program_state();
     if(!ok)
         return Status_GCodeToolError;
