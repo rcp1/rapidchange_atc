@@ -116,7 +116,7 @@ static const setting_group_detail_t atc_groups [] = {
 static uint32_t atc_get_int (setting_id_t id)
 {
     uint32_t value = 0;
-    switch(id) {
+    switch((uint32_t)id) {
         case 950:
             value = atc.dust_cover;
             break;
@@ -155,7 +155,7 @@ static bool is_setting_available (const setting_detail_t *setting)
 {
     bool available = false;
 
-    switch(setting->id) {
+    switch((uint32_t)setting->id) {
         case 931:
         case 932:
         case 933:
