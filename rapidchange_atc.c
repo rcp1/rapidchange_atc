@@ -602,6 +602,9 @@ static bool restore (void)
 }
 
 static bool restore_program_state (void) {
+    if(current_tool.tool_id == 0) {
+        return true;
+    }
     RAPIDCHANGE_DEBUG_PRINT("Restore.");
 
     // Get current position.
@@ -703,6 +706,7 @@ static bool unload_tool(void) {
 static bool load_tool(tool_id_t tool_id) {
     // If loading tool 0, we're done
     if(tool_id == 0) {
+        memcpy(&current_tool, next_tool, sizeof(tool_data_t));
         return true;
     }
 
@@ -869,7 +873,7 @@ static status_code_t tool_change (parser_state_t *parser_state)
     }
 
     // Require homing
-    uint8_t homed_req =  (X_AXIS_BIT|Y_AXIS_BIT|Z_AXIS_BIT);
+    uint8_t homed_req = (X_AXIS_BIT|Y_AXIS_BIT|Z_AXIS_BIT);
     if((sys.homed.mask & homed_req) != homed_req) {
         RAPIDCHANGE_DEBUG_PRINT("Homing is required before tool change.");
         return Status_HomingRequired;
