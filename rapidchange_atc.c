@@ -694,6 +694,8 @@ static bool unload_tool(void) {
 
     // The tool has been removed, set current tool to 0, only set for completeness, not used anywhere
     current_tool.tool_id = 0;
+    // Cancel tool length offset
+    gc_set_tool_offset(ToolLengthOffset_Cancel, 0, 0.0f);
 
     return true;
 }
