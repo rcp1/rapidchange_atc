@@ -38,7 +38,7 @@
 #define RAPIDCHANGE_DEBUG_PRINT(message) \
     hal.stream.write("[R-ATC]: "); \
     hal.stream.write(message); \
-    hal.stream.write(ASCII_EOL);
+    hal.stream.write(ASCII_EOL)
 #else
 #define RAPIDCHANGE_DEBUG_PRINT(...)
 #endif
@@ -529,9 +529,14 @@ static void open_dust_cover_output(bool open) {
 }
 
 static bool open_dust_cover(bool open) {
-    RAPIDCHANGE_DEBUG_PRINT("Open / close dust cover.");
     if(atc.dust_cover == DustCover_Disabled) {
         return true;
+    }
+
+    if(open) {
+        RAPIDCHANGE_DEBUG_PRINT("Open dust cover.");
+    } else {
+        RAPIDCHANGE_DEBUG_PRINT("Close dust cover.");
     }
 
     if(atc.dust_cover == DustCover_UsePort) {
