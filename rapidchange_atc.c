@@ -99,9 +99,9 @@ static volatile uint32_t spin_lock = 0;
 static nvs_address_t nvs_address;
 static atc_settings_t atc;
 static tool_data_t current_tool = {0}, *next_tool = NULL;
+static coord_data_t target = {0}, previous;
 static driver_reset_ptr driver_reset = NULL;
 static on_report_options_ptr on_report_options;
-static coord_data_t target = {0}, previous;
 
 static atc_ports_t ports;
 static uint8_t n_in_ports;
@@ -361,9 +361,11 @@ static void reset (void)
     RAPIDCHANGE_DEBUG_PRINT("Reset.");
     if(next_tool) { //TODO: move to gc_xxx() function?
         // Restore previous tool if reset is during change
-
         if(current_tool.tool_id != next_tool->tool_id) {
-            memcpy(next_tool, &current_tool, sizeof(tool_data_t));
+            if(grbl.tool_table.n_tools)
+                memcpy(gc_state.tool, &current_tool, sizeof(tool_data_t));
+            else
+                memcpy(next_tool, &current_tool, sizeof(tool_data_t));
             system_add_rt_report(Report_Tool);
         }
         char tool_msg[20];
@@ -376,7 +378,6 @@ static void reset (void)
         next_tool = NULL;
     }
 
-    // change_completed();
     driver_reset();
 }
 
@@ -558,8 +559,9 @@ void record_program_state() {
     memcpy(&target, &previous, sizeof(coord_data_t));
 }
 
-static bool restore_program_state (void) {
-    RAPIDCHANGE_DEBUG_PRINT("Restore.");
+// Restore coolant and spindle status, return controlled point to original position.
+static bool restore (void)
+{
     plan_line_data_t plan_data;
 
     plan_data_init(&plan_data);
@@ -587,13 +589,26 @@ static bool restore_program_state (void) {
         }
     }
 
-    // Already done after load tool
-    // if(protocol_buffer_synchronize()) {
-    //     sync_position();
-    //     memcpy(&current_tool, next_tool, sizeof(tool_data_t));
-    // }
+    if(protocol_buffer_synchronize()) {
+        sync_position();
+        // Already done after load tool
+        // memcpy(&current_tool, next_tool, sizeof(tool_data_t));
+    }
 
     return !ABORTED;
+}
+
+static bool restore_program_state (void) {
+    RAPIDCHANGE_DEBUG_PRINT("Restore.");
+
+    // Get current position.
+    system_convert_array_steps_to_mpos(target.values, sys.position);
+
+    bool ok = restore();
+
+    grbl.report.feedback_message(Message_None);
+
+    return ok;
 }
 
 static void set_tool_change_state(void) {

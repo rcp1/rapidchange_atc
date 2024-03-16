@@ -16,6 +16,7 @@ This plugin is not associated with Greilick Industries LLC.
 - [ ] Ensuring that tool is not forgotten on errors / resets
 - [x] Tool recognition
 - [x] Dust cover
+- [ ] Allow other orientations / axis of magazine than Z axis to load / unload
 
 ## Usage
 
