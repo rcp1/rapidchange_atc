@@ -941,19 +941,22 @@ void atc_init (void)
         return;
     }
 
-    // If initialization runs a second time, clear TLO
-    if (!sys.cold_start)
-        gc_set_tool_offset(ToolLengthOffset_Cancel, 0, 0.0f);
-
     hal.driver_cap.atc = On;
 
-    on_report_options = grbl.on_report_options;
-    grbl.on_report_options = report_options;
-
+    // Clear TLO reference
     if(sys.tlo_reference_set.mask != 0) {
         sys.tlo_reference_set.mask = 0;
         system_add_rt_report(Report_TLOReference);
     }
+
+    // If initialization runs a second time, clear TLO
+    if (!sys.cold_start) {
+        RAPIDCHANGE_DEBUG_PRINT("Clear TLO.");
+        gc_set_tool_offset(ToolLengthOffset_Cancel, 0, 0.0f);
+    }
+
+    on_report_options = grbl.on_report_options;
+    grbl.on_report_options = report_options;
 
     hal.tool.select = tool_select;
     hal.tool.change = tool_change;
