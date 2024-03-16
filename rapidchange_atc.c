@@ -94,8 +94,6 @@ typedef struct {
     uint8_t  dust_cover_port;
 } atc_settings_t;
 
-static volatile bool execute_posted = false;
-static volatile uint32_t spin_lock = 0;
 static nvs_address_t nvs_address;
 static atc_settings_t atc;
 static tool_data_t current_tool = {0}, *next_tool = NULL;
@@ -935,6 +933,10 @@ void atc_init (void)
         protocol_enqueue_foreground_task(report_warning, "RapidChange: Failed to initialize, unable to claim port for tool recognition or dust cover!");
         return;
     }
+
+    // If initialization runs a second time, clear TLO
+    if (!sys.cold_start)
+        gc_set_tool_offset(ToolLengthOffset_Cancel, 0, 0.0f);
 
     hal.driver_cap.atc = On;
 
