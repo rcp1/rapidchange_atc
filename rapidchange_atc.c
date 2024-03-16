@@ -954,8 +954,6 @@ void atc_init (void)
         system_add_rt_report(Report_TLOReference);
     }
 
-    // gc_set_tool_offset(ToolLengthOffset_Cancel, 0, 0.0f);
-
     hal.tool.select = tool_select;
     hal.tool.change = tool_change;
 
