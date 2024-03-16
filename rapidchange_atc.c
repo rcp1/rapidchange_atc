@@ -606,8 +606,6 @@ static bool restore_program_state (void) {
 
     bool ok = restore();
 
-    grbl.report.feedback_message(Message_None);
-
     return ok;
 }
 
@@ -823,12 +821,6 @@ static bool set_tool (void) {
         } else
             gc_set_tool_offset(ToolLengthOffset_EnableDynamic, Z_AXIS,
                                 sys.probe_position[Z_AXIS] - sys.tlo_reference[Z_AXIS]);
-
-        char tlo_msg[20];
-        float pos[3];
-        system_convert_array_steps_to_mpos(pos, sys.tlo_reference);
-        sprintf(tlo_msg, "Current TLO: %3.2f", pos[Z_AXIS]);
-        RAPIDCHANGE_DEBUG_PRINT(tlo_msg);
     }
 
     RAPIDCHANGE_DEBUG_PRINT("End of probing.");
