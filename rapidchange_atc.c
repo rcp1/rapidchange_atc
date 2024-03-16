@@ -815,15 +815,17 @@ static bool set_tool (void) {
     }
 
     if(ok) {
-        RAPIDCHANGE_DEBUG_PRINT("Set TLO.");
         if(!(sys.tlo_reference_set.mask & bit(Z_AXIS))) {
+            RAPIDCHANGE_DEBUG_PRINT("Set TLO reference.");
             sys.tlo_reference[Z_AXIS] = sys.probe_position[Z_AXIS];
             sys.tlo_reference_set.mask |= bit(Z_AXIS);
             system_add_rt_report(Report_TLOReference);
             grbl.report.feedback_message(Message_ReferenceTLOEstablished);
-        } else
+        } else {
+            RAPIDCHANGE_DEBUG_PRINT("Set TLO.");
             gc_set_tool_offset(ToolLengthOffset_EnableDynamic, Z_AXIS,
-                                sys.probe_position[Z_AXIS] - sys.tlo_reference[Z_AXIS]);
+                               sys.probe_position[Z_AXIS] - sys.tlo_reference[Z_AXIS]);
+        }
     }
 
     RAPIDCHANGE_DEBUG_PRINT("End of probing.");
@@ -957,7 +959,7 @@ void atc_init (void)
     hal.tool.change = tool_change;
 
     if((nvs_address = nvs_alloc(sizeof(atc_settings_t)))) {
-         settings_register(&setting_details);
+        settings_register(&setting_details);
     } else {
         protocol_enqueue_foreground_task(report_warning, "RapidChange: Failed to initialize, no NVS storage for settings!");
     }
